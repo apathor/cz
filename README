@@ -1,0 +1,27 @@
+choose [OPTIONS] < LINES - choose a line using an appropriate tool
+     --OR--
+choose [OPTIONS] [PLUGIN] [ARGS] - run a plugin that uses choose!
+
+OPTIONS
+ -h : display this usage text
+ -l : list known plugins
+ -g : force graphical mode
+ -t : force text mode
+
+ENVIRONMENT
+ CHOOSE_GUI : preferred interface - 1=graphical 0=terminal
+ CHOOSE_BINS_GUI : list of graphical utilities in order of preference
+ CHOOSE_BINS_TTY : list of terminal utilities in order of preference
+
+EXAMPLES
+ $ printf "%s\n" foo bar qux | choose
+ $ cd \$(choose dir)
+ $ emacs -nw \$(choose file)
+ $ curl -sS https://tools.ietf.org/rfc/index | choose uri
+ $ ssh \$(choose host)
+ $ choose \$(choose -l | choose)
+
+Currently supported tools:
+ dmenu fzf iselect pick rofi sentaku slmenu vis-menu
+
+by Mike Lalumiere 2019
