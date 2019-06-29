@@ -22,6 +22,13 @@ EXAMPLES
  $ choose \$(choose -l | choose)
 
 Currently supported tools:
- dmenu fzf iselect pick rofi sentaku slmenu vis-menu
+ dmenu    : https://tools.suckless.org/dmenu/
+ fzf      : https://github.com/junegunn/fzf
+ iselect  : http://www.ossp.org/pkg/tool/iselect/
+ pick     : https://github.com/mptre/pick
+ rofi     : https://github.com/davatorium/rofi
+ sentaku  : https://github.com/rcmdnk/sentaku
+ slmenu   : https://bitbucket.org/rafaelgg/slmenu
+ vis-menu : https://github.com/martanne/vis
 
 by Mike Lalumiere 2019
