@@ -150,10 +150,18 @@ choose_file() {
     if ! [ -d "$dir" ]; then
         return 1
     fi
-    # choose from the files under that directory
+    # find all files under that directory
+    local qot it
+    declare -a files
     while IFS= read -rd '' that; do
-        printf "%s\n" "$that"
-    done < <(find "$dir" -type f -print0) | choose
+        # shell quote file names to fit on one line
+        qot=$(printf "%q\n" "$that")
+        files+=("$qot")
+    done < <(find "$dir" -type f -print0)
+    # choose one of them
+    it=$(printf "%s\n"  "${files[@]}" | choose)
+    if [[ -z "$it" ]]; then return 2; fi
+    eval printf "$it"
 }
 
 # choose a directory under the current or given directory
@@ -167,11 +175,18 @@ choose_dir() {
     if ! [ -d "$dir" ]; then
         return 1
     fi
-    # choose from the directories under that directory
+    # find all directories under that directory
+    local qot it
+    declare -a dirs
     while IFS= read -rd '' that; do
-        printf "%s\n" "$that"
-    done < <(find "$dir" -type d -print0) | choose
-
+        # shell quote file names to fit on one line
+        qot=$(printf "%q\n" "$that")
+        dirs+=("$qot")
+    done < <(find "$dir" -type d -print0)
+    # choose one of them
+    it=$(printf "%s\n" "${dirs[@]}" | choose)
+    if [[ -z "$it" ]]; then return 2; fi
+    eval printf "$it"
 }
 
 # choose an apparix jump bookmark
@@ -183,8 +198,10 @@ choose_apparix() {
     fi
     # choose an apparix jump
     local sel=$(apparix | awk '/^j/ { print $2, $3 }' | choose)
+    if [ -z "$sel" ]; then return 2; fi
+    # write the path
     read -r name path <<< "$sel"
-    printf "%s\n" "$name"
+    printf "%s\n" "$path"
 }
 
 # choose an MPD track to play
@@ -213,7 +230,6 @@ choose_uri() {
     fi
     # choose a URI from stdin
     local uri=$(urifind | choose)
-    # empty
     if [ -z "$uri" ]; then return 2; fi
     # open it in the browser
     exec "${BROWSER:-sensible-browser}" "$uri"
@@ -233,10 +249,7 @@ choose_pass() {
     # choose an entry
     that=$(printf "%s\n" "${files[@]}" | choose)
     that="${that%%$pdir}"
-    if [[ -z "$that" ]]; then
-        echo "No entry selected." >&2
-        return 1
-    fi
+    if [[ -z "$that" ]]; then return 2; fi
     pass show "$that" | head -n1
 }
 
@@ -256,6 +269,7 @@ choose_xclip() {
     done
     # choose an xclip selection from the menu
     local line=$(printf "%s\n" "${menu[@]}" | choose)
+    if [[ -z "$line" ]]; then return 2; fi
     read -r sel _ <<< "$line"
     # read or write from xclip
     if [ -t 0 ]; then
@@ -275,7 +289,7 @@ choose_info() {
     # choose an info page
     local sel man
     sel=$(info -k . | choose)
-    if [ -z "$sel" ]; then return 1; fi
+    if [ -z "$sel" ]; then return 2; fi
     # figure out the selected page
     read -r topic _ <<< "$sel"
     # open that info page
@@ -292,7 +306,7 @@ choose_man() {
     # choose a manual page
     local sel man
     sel=$(man -k . | choose)
-    if [ -z "$sel" ]; then return 1; fi
+    if [ -z "$sel" ]; then return 2; fi
     # figure out the selected page
     read -r man sec _ <<< "$sel"
     sec="${sec//\(/}"; sec="${sec//\)/}"
@@ -311,6 +325,20 @@ choose_process() {
     ps aux | choose
     # choose a signal
     return 3
+}
+
+# choose a dictionary word
+choose_word() {
+    # require a dictionary file
+    local dict="${1:-/usr/share/dict/words}"
+    if ! [ -f "$dict" ]; then
+        printf "%s - Missing word file %s \n" "${FUNCNAME[0]}" "$dict" >&2
+        return 1
+    fi
+    # choose a word
+    local word=$(choose < "$dict")
+    if [[ -z "$word" ]]; then return 2; fi
+    printf "%s\n" "$word"
 }
 
 # run it unless sourced
