@@ -41,9 +41,8 @@ Currently supported tools:
 EOF
     # some selection utils are graphical or terminal-only
     local gfx="${CHOOSE_GUI}"
-    # use a graphical program if possible by default
-    if [ -z "$gfx" ] && [ -n "$DISPLAY" ]; then gfx=1; fi
     # accept options
+    local opt OPTIND OPTARG
     while getopts ":hlgt" opt; do
         case "$opt" in
             g) # try to use a graphical program for line selection
@@ -71,6 +70,8 @@ EOF
         esac
     done
     shift $((OPTIND - 1))
+    # use a graphical program if possible by default
+    if [ -z "$gfx" ] && [ -n "$DISPLAY" ]; then gfx=1; fi
     # allow an indefinite article
     if [[ "$1" =~ ^an?$ ]]; then shift; fi
     # plugins - any command in the format 'choose_$WORD'
@@ -123,11 +124,18 @@ EOF
     return 0
 }
 
-# choose a command on your path and run it
+# choose meta
+choose_meta() {
+    local it=$(choose "-l" | choose)
+    if [ -z "$it" ]; then return 2; fi
+    choose "$it"
+}
+
+# choose a command on your path to execute
 choose_exec() {
-    # choose a command to exec
     local bin=$(choose < <(compgen -c))
     if [ -z "$bin" ]; then return 2; fi
+    # printf "%s\n" "$bin"
     exec "$bin"
 }
 
@@ -189,6 +197,16 @@ choose_dir() {
     eval printf "$it"
 }
 
+# choose a line from your history
+choose_history() {
+    # chose a history entry
+    local it cmd
+    it=$(history | choose)
+    read -r _ _ _ cmd <<< "$it"
+    if [[ -z "$cmd" ]]; then return 2; fi
+    printf "$cmd"
+}
+
 # choose an apparix jump bookmark
 choose_apparix() {
     # require apparix
@@ -232,6 +250,7 @@ choose_uri() {
     local uri=$(urifind | choose)
     if [ -z "$uri" ]; then return 2; fi
     # open it in the browser
+    # printf "%s\n"
     exec "${BROWSER:-sensible-browser}" "$uri"
 }
 
@@ -268,14 +287,20 @@ choose_xclip() {
         menu+=("$item")
     done
     # choose an xclip selection from the menu
-    local line=$(printf "%s\n" "${menu[@]}" | choose)
-    if [[ -z "$line" ]]; then return 2; fi
-    read -r sel _ <<< "$line"
-    # read or write from xclip
+    local input line sel
     if [ -t 0 ]; then
+        # choose an xclip selection and write its contents
+        line=$(printf "%s\n" "${menu[@]}" | choose)
+        if [[ -z "$line" ]]; then return 2; fi
+        read -r sel _ <<< "$line"
         xclip -o -selection "$sel"
     else
-        xclip -i -selection "$sel" < /dev/stdin
+        # choose an xclip selection to store input lines
+        mapfile -t input
+        line=$(printf "%s\n" "${menu[@]}" | choose)
+        if [[ -z "$line" ]]; then return 2; fi
+        read -r sel _ <<< "$line"
+        printf "%s\n" "${input[@]}" | xclip -i -selection "$sel"
     fi
 }
 
