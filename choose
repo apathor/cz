@@ -94,12 +94,12 @@ EOF
     # read stdin
     mapfile -t lines
     # figure available graphical program
-    read -a gbins <<< "${CHOOSE_BINS_GUI:-dmenu rofi}"
+    read -r -a gbins <<< "${CHOOSE_BINS_GUI:-dmenu rofi}"
     for it in "${gbins[@]}"; do
         if type "$it" &>/dev/null; then gbin="$it"; break; fi
     done
     # figure available terminal program
-    read -a tbins <<< "${CHOOSE_BINS_TTY:-fzf pick iselect slmenu vis-menu sentaku}"
+    read -r -a tbins <<< "${CHOOSE_BINS_TTY:-fzf pick iselect slmenu vis-menu sentaku}"
     for it in "${tbins[@]}"; do
         if type "$it" &>/dev/null; then tbin="$it"; break; fi
     done
@@ -126,14 +126,16 @@ EOF
 
 # choose meta
 choose_meta() {
-    local it=$(choose "-l" | choose)
+    local it
+    it=$(choose "-l" | choose)
     if [ -z "$it" ]; then return 2; fi
     choose "$it"
 }
 
 # choose a command on your path to execute
 choose_exec() {
-    local bin=$(choose < <(compgen -c))
+    local bin
+    bin=$(choose < <(compgen -c))
     if [ -z "$bin" ]; then return 2; fi
     # printf "%s\n" "$bin"
     exec "$bin"
@@ -142,7 +144,8 @@ choose_exec() {
 # choose a host in your hostfile
 choose_host() {
     # choose a host
-    local host=$(choose < <(compgen -A hostname | sort -u))
+    local host
+    host=$(choose < <(compgen -A hostname | sort -u))
     if [ -z "$host" ]; then return 2; fi
     printf "%s\n" "$host"
 }
@@ -204,7 +207,7 @@ choose_history() {
     it=$(history | choose)
     read -r _ _ _ cmd <<< "$it"
     if [[ -z "$cmd" ]]; then return 2; fi
-    printf "$cmd"
+    printf "%s\n" "$cmd"
 }
 
 # choose an apparix jump bookmark
@@ -215,10 +218,11 @@ choose_apparix() {
         return 1
     fi
     # choose an apparix jump
-    local sel=$(apparix | awk '/^j/ { print $2, $3 }' | choose)
+    local sel
+    sel=$(apparix | awk '/^j/ { print $2, $3 }' | choose)
     if [ -z "$sel" ]; then return 2; fi
     # write the path
-    read -r name path <<< "$sel"
+    read -r _ path <<< "$sel"
     printf "%s\n" "$path"
 }
 
@@ -232,9 +236,10 @@ choose_mpc() {
     # get current mpd playlist indexed
     mapfile -t tracks < <(mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
     # choose a track
-    local track=$(printf "%s\n" "${tracks[@]}" | choose)
+    local track
+    track=$(printf "%s\n" "${tracks[@]}" | choose)
     # play that track
-    read pos rest <<< "$track"
+    read -r pos rest <<< "$track"
     if [ -z "$pos" ]; then return 2; fi
     mpc play "$pos"
 }
@@ -247,7 +252,8 @@ choose_uri() {
         return 1
     fi
     # choose a URI from stdin
-    local uri=$(urifind | choose)
+    local uri
+    uri=$(urifind | choose)
     if [ -z "$uri" ]; then return 2; fi
     # open it in the browser
     # printf "%s\n"
@@ -261,6 +267,7 @@ choose_pass() {
         printf "%s - Missing pass or find.\n" "${FUNCNAME[0]}" >&2
         return 1
     fi
+    local pdir files that
     # the password directory
     pdir=${PASSWORD_STORE_DIR:-~/.password-store}
     # find gpg files strip the path and extension
@@ -271,6 +278,26 @@ choose_pass() {
     if [[ -z "$that" ]]; then return 2; fi
     pass show "$that" | head -n1
 }
+
+# choose a lastpass password
+choose_lastpass() {
+    # require pass
+    if ! type lpass &>/dev/null; then
+        printf "%s - Missing lpass.\n" "${FUNCNAME[0]}" >&2
+        return 1
+    fi
+    # pick a lastpass password
+    local that id
+    that=$(lpass ls | choose | grep -Eo 'id: [0-9]+')
+    if [[ -z "$that" ]]; then
+        echo "No entry selected." >&2
+        return 1
+    fi
+    # dump the password
+    id="${that##id: }"
+    lpass show --password "$id"
+}
+
 
 # choose an xclip selection, in or out
 choose_xclip() {
@@ -361,7 +388,8 @@ choose_word() {
         return 1
     fi
     # choose a word
-    local word=$(choose < "$dict")
+    local word
+    word=$(choose < "$dict")
     if [[ -z "$word" ]]; then return 2; fi
     printf "%s\n" "$word"
 }
