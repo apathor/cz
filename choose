@@ -1,6 +1,7 @@
 #!/bin/bash
 # choose - Line selection abstraction (plus utilities!)
 # Source this file to enable completion and expose internal functions.
+#
 # Supported tools:
 #  dmenu    : https://tools.suckless.org/dmenu/
 #  fzf      : https://github.com/junegunn/fzf
@@ -175,7 +176,7 @@ function _choose() {
 }
 complete -F _choose choose
 
-# choose meta
+# choose from available plugins
 choose_meta() {
     local it
     it=$(choose "-l" | choose)
@@ -199,6 +200,24 @@ choose_host() {
     host=$(choose < <(compgen -A hostname | sort -u))
     if [ -z "$host" ]; then return 2; fi
     printf "%s\n" "$host"
+}
+
+# choose a system user
+choose_user() {
+    # select a user from the password database
+    local user
+    user=$(compgen -u | choose)
+    if [ -z "$user" ]; then return 2; fi
+    printf "%s\n" "$user"
+}
+
+# choose a system group
+choose_group() {
+    # select a user from the password database
+    local group
+    group=$(compgen -g | choose)
+    if [ -z "$group" ]; then return 2; fi
+    printf "%s\n" "$group"
 }
 
 # choose a file under the current or given directory
@@ -264,7 +283,7 @@ choose_history() {
 # choose an apparix jump bookmark
 choose_apparix() {
     # require apparix
-    if ! type mpc sort &>/dev/null; then
+    if ! type awk apparix sort &>/dev/null; then
         printf "%s - missing required tools.\n" "${FUNCNAME[0]}" >&2
         return 1
     fi
@@ -528,6 +547,18 @@ choose_ansibledoc() {
     ansible-doc "$page"
 }
 
+# choose a surfraw elvi
+choose_surfraw() {
+    # require sr
+    if ! type surfraw &>/dev/null; then
+        printf "%s\n Missing sr.\n" "${FUNCNAME[0]}" >&2
+        return 1
+    fi
+    # pick an elvi and use it to search
+    read -r elvi _ < <(surfraw -elvi | choose)
+    if [ -z "$elvi" ]; then return 2; fi
+    sr "$elvi" "$*"
+}
 
 # run it unless sourced
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then choose "$@"; fi
