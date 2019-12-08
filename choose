@@ -1,17 +1,31 @@
 #!/bin/bash
 # choose - Line selection abstraction (plus utilities!)
-# Source this file to enable completion and expose internal functions.
-#
+# shellcheck disable=SC2016
+
 # Supported tools:
 #  dmenu    : https://tools.suckless.org/dmenu/
 #  fzf      : https://github.com/junegunn/fzf
 #  iselect  : http://www.ossp.org/pkg/tool/iselect/
 #  pick     : https://github.com/mptre/pick
+#  pipedial : https://code.reversed.top/user/xaizek/pipedial
 #  rofi     : https://github.com/davatorium/rofi
 #  sentaku  : https://github.com/rcmdnk/sentaku
 #  slmenu   : https://bitbucket.org/rafaelgg/slmenu
 #  vis-menu : https://github.com/martanne/vis
+#
+# HEY Source this file to enable completion and expose internal functions.
 # by Mike Lalumiere 2019
+###
+
+require() {
+    local clr="${FUNCNAME[1]}"
+    for x in "$@"; do
+        if ! hash "$x" &>/dev/null; then
+            printf "%s %s is required!\n" "$clr" "$x" >&2
+            return 1
+        fi
+    done
+}
 
 chuz() {
     # usage
@@ -19,6 +33,15 @@ chuz() {
 chuz < INPUT > LINE
 Select one line from input.
 EOF
+    # accept options
+    local opt OPTIND OPTARG
+    while getopts ":h" opt; do
+        case "$opt" in
+            *) printf "%s\n" "$use"
+               return 1
+               ;;
+        esac
+    done
     # prepend a number to each line of input
     local ind lines
     mapfile -t lines
@@ -58,45 +81,75 @@ choose [OPTIONS] < LINES - choose a line using an appropriate tool
 choose [OPTIONS] [PLUGIN] [ARGS] - run a plugin that uses choose!
 
 OPTIONS
- -h : display this usage text
- -l : list known plugins
- -g : force graphical mode
- -t : force text mode
+ -h         : Help
+ -l         : List plugins
+ -e COMMAND : Run given command replacing {} with selection
+ -p         : Print selection instead of executing a command
+ -f FIELD   : Extract field at given index from selection
+ -g         : Force graphical mode
+ -t         : Force terminal mode
+ -0         : Read null terminated lines
 
 ENVIRONMENT
- CHOOSE_GUI : preferred interface - 1=graphical 0=terminal
- CHOOSE_BINS_GUI : list of graphical utilities in order of preference
- CHOOSE_BINS_TTY : list of terminal utilities in order of preference
+ CHOOSE_GUI         : preferred interface - 1=graphical 0=terminal
+ CHOOSE_BINS_GUI    : list of graphical utilities in order of preference
+ CHOOSE_BINS_TTY    : list of terminal utilities in order of preference
+ CHOOSE_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
 
 EXAMPLES
  $ printf "%s\n" foo bar qux | choose
  $ cd \$(choose dir)
  $ emacs -nw \$(choose file)
- $ curl -sS https://tools.ietf.org/rfc/index | choose uri
- $ ssh \$(choose host)
+ $ choose -e ssh host
  $ choose \$(choose -l | choose)
 
-Currently supported tools:
- dmenu fzf iselect pick rofi sentaku slmenu vis-menu
+All commands starting with 'choose_' are considered plugins.
+
+Supported line selection tools:
+ dmenu fzf iselect pick rofi pipedial sentaku slmenu vis-menu
 EOF
     # some selection utils are graphical or terminal-only
-    local gfx="${CHOOSE_GUI}"
+    local gfx="${CHOOSE_GUI:-1}"
     # figure available graphical program
     read -r -a gbins <<< "${CHOOSE_BINS_GUI:-dmenu rofi}"
     for it in "${gbins[@]}"; do
         if type "$it" &>/dev/null; then gbin="$it"; break; fi
     done
     # figure available terminal program
-    read -r -a tbins <<< "${CHOOSE_BINS_TTY:-fzf pick iselect slmenu vis-menu sentaku}"
+    read -r -a tbins <<< "${CHOOSE_BINS_TTY:-fzf pick pipedial sentaku vis-menu chuz}"
     for it in "${tbins[@]}"; do
         if type "$it" &>/dev/null; then tbin="$it"; break; fi
     done
     # accept options
+    # TODO optional prompt?
+    local fld=""                 # integer fields to extract from selected text
+    local exe="${CHOOSE_EXE}"    # command to run with selected text
+    local run="${CHOOSE_RUN:-1}" # boolean to run a command or just print selected text
+    local inp="/dev/stdin"       # target input file
+    local nul=0
     local opt OPTIND OPTARG
-    while getopts ":hlgqt" opt; do
+    while getopts ":he:f:gi:lpqt0" opt; do
         case "$opt" in
+            e) # run a command using selection as an argument
+                exe="${exe:-$OPTARG}"
+                run="${run:-1}"
+                ;;
+            f) # select this field or range of fields
+                fld="$OPTARG"
+                if ! [[ "$fld" =~ [[:digit:]]:? ]]; then
+                    printf "%s\n" "Bad field index" >&2
+                    return 2
+                fi
+                ;;
             g) # try to use a graphical program for line selection
                 gfx=1
+                ;;
+            i) # selection file
+                inp="$OPTARG"
+                if ! [ -r "$inp" ]; then
+                    printf "%s\n" "Bad input file" >&2
+                    return 2
+                fi
                 ;;
             t) # try to use a terminal program for line selection
                 gfx=0
@@ -109,9 +162,15 @@ EOF
                 done < <(compgen -c) | sort
                 return 0
                 ;;
+            p) # just print
+                run=0
+                ;;
             q) # list supported programs
                 printf "%s\n" "${gbins[@]}" "${tbins[@]}" | sort
                 return 0
+                ;;
+            0) # handle null separated lines
+                nul=1
                 ;;
             h) # write some help text
                 printf "%s\n" "$use" >&2
@@ -124,329 +183,257 @@ EOF
         esac
     done
     shift $((OPTIND - 1))
-    # use a graphical program if possible by default
-    if [ -z "$gfx" ] && [ -n "$DISPLAY" ]; then gfx=1; fi
+    # use a terminal program if possible by default
+    if [ -z "$gfx" ] && tty &>/dev/null; then gfx=0; fi
     # allow an indefinite article
     if [[ "$1" =~ ^an?$ ]]; then shift; fi
     # plugins - any command in the format 'choose_$WORD'
     if [ -n "$1" ]; then
         local plug="choose_$1"
-        if type "$plug" &>/dev/null; then
-            shift
-            CHOOSE_GUI="$gfx" eval "$plug" "$@"
-            return "$?"
-        else
-            printf "%s function or command not found.\n" "$plug" >&2
-            return 3
+        if ! type "$plug" &>/dev/null; then
+            printf "%s command not found.\n" "$plug" >&2
         fi
+        shift
+        CHOOSE_RUN="$run" CHOOSE_EXE="$exe" CHOOSE_GUI="$gfx" \
+                  eval "$plug" "$@"
+        return $?
     fi
-    # if not attached
-    if [ "$#" -eq 0 ] && [ -t 0 ]; then
-        printf "%s\n" "$use" >&2
-        return 0
+    # read selection file
+    declare -a lines
+    if ((nul)); then
+        mapfile -d '' -t lines < "$inp"
+    else
+        mapfile -t lines < "$inp"
     fi
-    # read stdin
-    mapfile -t lines
-    # using a util of the appropriate flavor...
+    # require at least one non-empty line
+    if ! (("${#lines[@]}")); then
+        return 3
+    fi
+    # pick an appropriate line selection program
     if ((gfx)); then app="$gbin"; else app="$tbin"; fi
     # choose a line
-    printf "%s\n" "${lines[@]}" | \
-        case "$app" in
-            dmenu    ) dmenu -i -l 30 ;;
-            fzf      ) fzf ;;
-            iselect  ) iselect -a ;;
-            pick     ) pick ;;
-            rofi     ) rofi -dmenu -p "" ;;
-            sentaku  ) sentaku -s $'\n' | head -n1 ;;
-            slmenu   ) slmenu -i -l 30 ;;
-            vis-menu ) vis-menu -i -l 30 ;;
-            *        ) chuz ;;
+    local out
+    out=$(case "$app" in
+              dmenu    )
+                  IFS=':' read -r nf nb sf sb <<< "${CHOOSE_DMENU_COLOR:-black:grey:black:white}"
+                  dmenu -i -l 30 -nf "$nf"  -nb "$nb" -sf "$sf"  -sb "$sb"
+                  ;;
+              fzf      ) fzf ;;
+              iselect  ) iselect -a ;;
+              pick     ) pick ;;
+              rofi     ) rofi -i -dmenu -p "" ;;
+              pipedial ) pipedial ;;
+              sentaku  ) sentaku -s $'\n' | head -n1 ;;
+              slmenu   ) slmenu -i -l 30 ;;
+              vis-menu ) vis-menu -i -l 30 ;;
+              *        ) chuz ;;
+          esac < <(if ((nul)); then printf "%q\n" "${lines[@]}"
+                   else printf "%s\n" "${lines[@]}"; fi)
+       )
+    # rectify shell quoted selection
+    if ((nul)); then
+        out=$(eval printf "%s" "$out")
+    fi
+    # maybe narrow to a specific field
+    if [ -n "$fld" ]; then
+        read -r -a toks <<< "$out"
+        case "$fld" in
+            [[:digit:]])  out="${toks[$fld]}" ;;
+            [[:digit:]]:) out="${toks[*]:${fld%%:}}" ;;
         esac
-    return 0
+    fi
+    # no selection
+    if [ -z "$out" ]; then
+        return 3
+    fi
+    # maybe run something with the selection
+    if ((run)) && [ -n "$exe" ]; then
+        local cmd
+        if [[ "$exe" =~ \{\} ]]; then
+            cmd="${exe/\{\}/$out}"
+        else
+            cmd="${exe} ${out}"
+        fi
+        CHOOSE_RUN="" CHOOSE_EXE="" CHOOSE_GUI="" eval "$cmd"
+        return $?
+    fi
+    # write selection out
+    printf "%s\n" "$out"
 }
 
 ####
 
-# command completion
+# choose command completion
 function _choose() {
-    local cur opts
-    cur="${COMP_WORDS[COMP_CWORD]}"
-    opts=$(printf -- "-%s " g h l q t)
-    COMPREPLY=($(compgen -W "$(choose -l) $opts" -- "$cur"))
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    local opts=(-{g,h,l,q,t})
+    COMPREPLY=($(compgen -W "$(choose -l) ${opts[*]}" -- "$cur"))
 }
 complete -F _choose choose
 
 # choose from available plugins
 choose_meta() {
-    local it
-    it=$(choose "-l" | choose)
-    if [ -z "$it" ]; then return 2; fi
-    choose "$it"
+    choose -e "choose" -f 0: < <(choose -l)
 }
 
-# choose a command on your path to execute
-choose_exec() {
-    local bin
-    bin=$(choose < <(compgen -c))
-    if [ -z "$bin" ]; then return 2; fi
-    # printf "%s\n" "$bin"
-    exec "$bin"
+# choose a command on your path
+choose_command() {
+    choose -e "exec {} $*" < <(compgen -c)
 }
 
 # choose a host in your hostfile
 choose_host() {
-    # choose a host
-    local host
-    host=$(choose < <(compgen -A hostname | sort -u))
-    if [ -z "$host" ]; then return 2; fi
-    printf "%s\n" "$host"
+    choose < <(compgen -A hostname | sort -u)
 }
 
 # choose a system user
 choose_user() {
-    # select a user from the password database
-    local user
-    user=$(compgen -u | choose)
-    if [ -z "$user" ]; then return 2; fi
-    printf "%s\n" "$user"
+    choose < <(compgen -u)
 }
 
 # choose a system group
 choose_group() {
-    # select a user from the password database
-    local group
-    group=$(compgen -g | choose)
-    if [ -z "$group" ]; then return 2; fi
-    printf "%s\n" "$group"
+    choose < <(compgen -g)
 }
 
 # choose a file under the current or given directory
 choose_file() {
-    # require find
-    if ! type find &>/dev/null; then
-        printf "%s - Missing find?\n" "${FUNCNAME[0]}" >&2
-    fi
-    # accept directory argument
+    require find || return 255
     local dir="${1:-.}"
     if ! [ -d "$dir" ]; then
         return 1
     fi
-    # find all files under that directory
-    local qot it
-    declare -a files
-    while IFS= read -rd '' that; do
-        # shell quote file names to fit on one line
-        qot=$(printf "%q\n" "$that")
-        files+=("$qot")
-    done < <(find "$dir" -maxdepth 5 -type f -print0)
-    # choose one of them
-    it=$(printf "%s\n"  "${files[@]}" | choose)
-    if [[ -z "$it" ]]; then return 2; fi
-    eval printf "$it"
+    choose -0 < <(find "$dir" -maxdepth 5 -type f -print0)
 }
 
 # choose a directory under the current or given directory
 choose_dir() {
-    # require find
-    if ! type find &>/dev/null; then
-        printf "%s - Missing find?\n" "${FUNCNAME[0]}" >&2
-    fi
-    # accept directory argument
+    require find || return 255
     local dir="${1:-.}"
     if ! [ -d "$dir" ]; then
         return 1
     fi
-    # find all directories under that directory
-    local qot it
-    declare -a dirs
-    while IFS= read -rd '' that; do
-        # shell quote file names to fit on one line
-        qot=$(printf "%q\n" "$that")
-        dirs+=("$qot")
-    done < <(find "$dir" -maxdepth 5 -type d -print0)
-    # choose one of them
-    it=$(printf "%s\n" "${dirs[@]}" | choose)
-    if [[ -z "$it" ]]; then return 2; fi
-    eval printf "$it"
+    choose -0 < <(find "$dir" -maxdepth 5 -type d -print0)
 }
 
 # choose a line from your history
 choose_history() {
-    # chose a history entry
-    local it cmd
-    it=$(history | choose)
-    read -r _ _ _ cmd <<< "$it"
-    if [[ -z "$cmd" ]]; then return 2; fi
-    printf "%s\n" "$cmd"
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:blue:black:green}"
+    choose -f 3: -e "eval" < <(history)
 }
 
 # choose an apparix jump bookmark
 choose_apparix() {
-    # require apparix
-    if ! type awk apparix sort &>/dev/null; then
-        printf "%s - missing required tools.\n" "${FUNCNAME[0]}" >&2
-        return 1
-    fi
-    # choose an apparix jump
-    local sel
-    sel=$(apparix | awk '/^j/ { print $2, $3 }' | choose)
-    if [ -z "$sel" ]; then return 2; fi
-    # write the path
-    read -r _ path <<< "$sel"
-    printf "%s\n" "$path"
+    require awk apparix || return 255
+    choose -f 1 -e "cd" < <(apparix | awk '/^j/ { print $2, $3 }')
 }
 
-# choose an MPD track to play
+# choose an MPD track by index from playlist
 choose_mpc() {
-    # require mpc
-    if ! type mpc sort &>/dev/null; then
-        printf "%s - missing required tools.\n" "${FUNCNAME[0]}" >&2
-        return 1
-    fi
-    # get current mpd playlist indexed
-    mapfile -t tracks < <(mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
-    # choose a track
-    local track
-    track=$(printf "%s\n" "${tracks[@]}" | choose)
-    # play that track
-    read -r pos rest <<< "$track"
-    if [ -z "$pos" ]; then return 2; fi
-    mpc play "$pos"
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:blue:blue:white}"
+    require mpc || return 255
+    choose -f 0 -e "mpc play {}" \
+           < <(mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
 }
 
-# choose a URI out of stdin and open it in the browser
+# choose a URI filter from input
 choose_uri() {
-    # require urifind
-    if ! type urifind sort &>/dev/null; then
-        printf "%s - Missing urifind. Run 'cpanm URI::Find'.\n" "${FUNCNAME[0]}" >&2
-        return 1
-    fi
-    # choose a URI from stdin
-    local uri
-    uri=$(urifind | choose)
-    if [ -z "$uri" ]; then return 2; fi
-    # open it in the browser
-    # printf "%s\n"
-    exec "${BROWSER:-sensible-browser}" "$uri"
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:black:black:green}"
+    require urifind || return 255
+    choose -e sensible-browser < <(urifind)
 }
 
 # choose a password out of pass
 choose_pass() {
-    # require pass
-    if ! type pass find sed &>/dev/null; then
-        printf "%s - Missing pass or find.\n" "${FUNCNAME[0]}" >&2
-        return 1
-    fi
-    local pdir files that
-    # the password directory
-    pdir=${PASSWORD_STORE_DIR:-~/.password-store}
-    # find gpg files strip the path and extension
-    files=$(find "${pdir%/}/" -name '*.gpg' -type f | sed "s#\.gpg\$##; s#$pdir##")
-    # choose an entry
-    that=$(printf "%s\n" "${files[@]}" | choose)
-    that="${that%%$pdir}"
-    if [[ -z "$that" ]]; then return 2; fi
-    pass show "$that" | head -n1
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-grey:purple:white:black}"
+    require pass find sed || return 255
+    local pdir=${PASSWORD_STORE_DIR:-~/.password-store}
+    choose -e "pass show {}" \
+           < <(find "$pdir" -type f -name '*.gpg' | sed "s#\.gpg##; s#$pdir##")
 }
 
 # choose a lastpass password
 choose_lastpass() {
-    # require pass
-    if ! type lpass &>/dev/null; then
-        printf "%s - Missing lpass.\n" "${FUNCNAME[0]}" >&2
-        return 1
-    fi
-    # pick a lastpass password
-    local that id
-    that=$(lpass ls | choose | grep -Eo 'id: [0-9]+')
-    if [[ -z "$that" ]]; then
-        echo "No entry selected." >&2
-        return 1
-    fi
-    # dump the password
-    id="${that##id: }"
-    lpass show --password "$id"
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:black:black:green}"
+    require lpass || return 255
+    IFS='[' choose -f 0 -e "lpass show --password" < <(lpass ls)
 }
-
 
 # choose an xclip selection, in or out
 choose_xclip() {
-    # require xclip
-    if ! type xclip &>/dev/null; then
-        printf "%s - Missing xclip?\n" "${FUNCNAME[0]}" >&2
-        return 1
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:grey:black:white}"
+    require xclip || return 255
+    # read or write from buffer
+    local exe="xclip -o -selection"
+    if ! [ -t 0 ]; then
+        exe="xclip -i -selection"
     fi
     # generate menu line for each xclip selection
-    local mod="" peek="" item="" menu=()
-    for mod in primary secondary clipboard; do
-        peek=$(xclip -o -selection "$mod" 2>/dev/null | head -n 1)
-        item=$(printf "%s %s\n" "$mod" "$peek")
-        menu+=("$item")
+    local mod buf lenc lenl
+    declare -a menu
+    for mod in clipboard primary secondary; do
+         buf=$(xclip -o -selection "$mod" 2>/dev/null)
+         lenc=$(wc -c <<< "$buf")
+         lenl=$(wc -l <<< "$buf")
+         menu+=("$(printf "%s %s %s\n" "$mod" "$lenc" "$lenl")")
     done
-    # choose an xclip selection from the menu
-    local input line sel
-    if [ -t 0 ]; then
-        # choose an xclip selection and write its contents
-        line=$(printf "%s\n" "${menu[@]}" | choose)
-        if [[ -z "$line" ]]; then return 2; fi
-        read -r sel _ <<< "$line"
-        xclip -o -selection "$sel"
-    else
-        # choose an xclip selection to store input lines
-        mapfile -t input
-        line=$(printf "%s\n" "${menu[@]}" | choose)
-        if [[ -z "$line" ]]; then return 2; fi
-        read -r sel _ <<< "$line"
-        printf "%s\n" "${input[@]}" | xclip -i -selection "$sel"
-    fi
+    # choose an xclip selection
+    choose -f 0 -i <(printf "%s\n" "${menu[@]}")  -e "$exe"
 }
 
 # choose an info page to open
 choose_info() {
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:blue:black:green}"
     # require info
     if ! type info &>/dev/null; then
         printf "%s - Missing info?!\n" "${FUNCNAME[0]}" >&2
         return 1
     fi
     # choose an info page
-    local sel man
-    sel=$(info -k . | choose)
-    if [ -z "$sel" ]; then return 2; fi
-    # figure out the selected page
-    read -r topic _ <<< "$sel"
-    # open that info page
-    info "$topic"
+    choose -f 0 -e "info" < <(info -k .)
 }
 
 # choose a manual page to open
 choose_man() {
-    # require man
-    if ! type man &>/dev/null; then
-        printf "%s - Missing man?!\n" "${FUNCNAME[0]}" >&2
-        return 1
-    fi
-    # choose a manual page
-    local sel man
-    sel=$(man -k . | choose)
-    if [ -z "$sel" ]; then return 2; fi
-    # figure out the selected page
-    read -r man sec _ <<< "$sel"
-    sec="${sec//\(/}"; sec="${sec//\)/}"
-    # open that man page
-    man "$sec" "$man"
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:white:yellow:black}"
+    require man || return 255
+    choose -f 0 -e "man" < <(man -k .)
 }
 
-# choose a process and signal to kill it with
+# choose a process by PID
 choose_process() {
-    # require ps
-    if ! type ps &>/dev/null; then
-        printf "%s - Missing ps?!\n" "${FUNCNAME[0]}" >&2
-        return 1
-    fi
-    # choose a process
-    ps aux | choose
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:blue:black:orange}"
+    require ps || return 255
+    # build a table of processes
+    mapfile table < <(ps ux)
+    read -r -a cols <<< "${table[0]}"
+    for ((ind=1; ind <= "${#cols[@]}"; ind++)) ; do
+        if [[ "${cols[$ind]}" =~ ^(pid|PID)$ ]]; then break; fi
+    done
+    # pick a process
+    choose -f "$ind" <<< "${table[@]:1}"
+}
+
+# choose a signal
+choose_signal() {
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:blue:black:red}"
+    # build an table of signals
+    local name line
+    declare -a signals
+    for x in {1..64}; do
+        name=$(kill -l "$x")
+        if [ -z "$name" ]; then continue; fi
+        line=$(printf "%02d %s\n" "$x" "$name")
+        signals+=("$line")
+    done
     # choose a signal
-    return 3
+    choose -f 1 < <(printf "%s\n" "${signals[@]}")
+}
+
+# choose a process to kill
+choose_kill() {
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:red:green:black}"
+    choose -t -e 'kill -$(choose signal)' process
 }
 
 # choose a dictionary word
@@ -458,45 +445,48 @@ choose_word() {
         return 1
     fi
     # choose a word from the dictionary file
-    local word
-    word=$(choose < "$dict")
-    if [[ -z "$word" ]]; then return 2; fi
-    printf "%s\n" "$word"
+    choose < "$dict"
 }
 
 # choose an active file used by git
+# TODO simplify or split this function up
 choose_git() {
-    # require find
-    if ! type git &>/dev/null; then
-        printf "%s - Missing git?\n" "${FUNCNAME[0]}" >&2
-        return 1
-    fi
-    # accept git working directory argument
-    local dir="${1:-.}"
-    if ! [ -d "$dir" ]; then
-        return 1
-    fi
-    # figure root of repository
+    # require git
+    require git grep || return 255
+    # git working directory
+    local dir="."
+    # find root of repository
     local root
     root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)
     if [ -z "$root" ]; then
         return 2
     fi
-    # choose a file from the status list
-    local line
-    line=$(git -C "$dir" status -sbu | grep -v ^# | choose)
-    read -r _ file <<< "$line"
-    if [[ -z "$file" ]]; then return 2; fi
-    printf "%s/%s\n" "$root" "$file"
+    # choose something
+    local what="${1:-file}" line=""
+    case "$what" in
+        file)
+            # choose a file from the status list
+            choose -f 1 < <(git -C "$dir" status -sbu | grep -v ^#)
+            ;;
+        branch)
+            # choose a branch
+            choose -f 0 < <(git -C "$dir" branch | grep -v '^\*')
+            ;;
+        tag)
+            # choose a tag
+            choose -f 0 < <(git -C "$dir" tag)
+            ;;
+        *)
+            printf "%s\n" "Nope?" >&2
+            return 3
+            ;;
+    esac
 }
 
 # choose corrections from input
 choose_ispell() {
     # require ispell
-    if ! type ispell &>/dev/null; then
-        printf "%s - Missing git?\n" "${FUNCNAME[0]}" >&2
-        return 1
-    fi
+    require ispell || return 255
     # read input lines
     mapfile -t lines
     # parse ispell spellcheck output
@@ -511,7 +501,7 @@ choose_ispell() {
                 continue
                 ;;
             '?') # guess
-                false ;;
+                : ;;
             '&') # miss
                 read -r bad _ _ sug   <<< "$rest"
                 IFS=', ' read -r -a fixes <<< "$sug"
@@ -534,30 +524,28 @@ choose_ispell() {
     printf "%s\n" "${lines[@]}"
 }
 
+# choose a perldoc manual page to open
+choose_perldoc() {
+    require perldoc || return 255
+    choose -f 0 -e "perldoc" < <(perldoc-search .)
+}
+
+# choose a pydoc manual page to open
+choose_pydoc() {
+    require pydoc || return 255
+    choose -f 0 -e "pydoc" < <(pydoc -k .)
+}
+
 # choose an ansible manual page to open
 choose_ansibledoc() {
-    # require ansible-doc
-    if ! type ansible-doc &>/dev/null; then
-        printf "%s\n Missing ansible-doc.\n" "${FUNCNAME[0]}" >&2
-        return 1
-    fi
-    # pick a page and read it
-    read -r page _ < <(ansible-doc -l | choose)
-    if [ -z "$page" ]; then return 2; fi
-    ansible-doc "$page"
+    require ansible-doc || return 255
+    choose -f 0 -e "ansible-doc" < <(ansible-doc -l)
 }
 
 # choose a surfraw elvi
 choose_surfraw() {
-    # require sr
-    if ! type surfraw &>/dev/null; then
-        printf "%s\n Missing sr.\n" "${FUNCNAME[0]}" >&2
-        return 1
-    fi
-    # pick an elvi and use it to search
-    read -r elvi _ < <(surfraw -elvi | choose)
-    if [ -z "$elvi" ]; then return 2; fi
-    sr "$elvi" "$*"
+    require surfraw || return 255
+    choose -f 0 -e "surfraw" < <(surfraw -elvi)
 }
 
 # run it unless sourced
