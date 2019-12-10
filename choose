@@ -1,6 +1,6 @@
 #!/bin/bash
-# choose - Line selection abstraction (plus utilities!)
 # shellcheck disable=SC2016
+# choose - Line selection abstraction (plus utilities!)
 
 # Supported tools:
 #  dmenu    : https://tools.suckless.org/dmenu/
@@ -83,6 +83,8 @@ choose [OPTIONS] [PLUGIN] [ARGS] - run a plugin that uses choose!
 OPTIONS
  -h         : Help
  -l         : List plugins
+ -k         : List supported tools
+ -d DELIM   : Split on given delimeter for field selection
  -e COMMAND : Run given command replacing {} with selection
  -p         : Print selection instead of executing a command
  -f FIELD   : Extract field at given index from selection
@@ -100,10 +102,10 @@ EXAMPLES
  $ printf "%s\n" foo bar qux | choose
  $ cd \$(choose dir)
  $ emacs -nw \$(choose file)
- $ choose -e ssh host
+ $ choose -e 'dig' host
+ $ choose -e 'sudo -u {} -i' -d: -f0 < /etc/passwd
  $ choose \$(choose -l | choose)
 
-All commands starting with 'choose_' are considered plugins.
 
 Supported line selection tools:
  dmenu fzf iselect pick rofi pipedial sentaku slmenu vis-menu
@@ -116,7 +118,7 @@ EOF
         if type "$it" &>/dev/null; then gbin="$it"; break; fi
     done
     # figure available terminal program
-    read -r -a tbins <<< "${CHOOSE_BINS_TTY:-fzf pick pipedial sentaku vis-menu chuz}"
+    read -r -a tbins <<< "${CHOOSE_BINS_TTY:-fzf pick pipedial sentaku iselect vis-menu}"
     for it in "${tbins[@]}"; do
         if type "$it" &>/dev/null; then tbin="$it"; break; fi
     done
@@ -127,9 +129,13 @@ EOF
     local run="${CHOOSE_RUN:-1}" # boolean to run a command or just print selected text
     local inp="/dev/stdin"       # target input file
     local nul=0
+    local dlm="$IFS"
     local opt OPTIND OPTARG
-    while getopts ":he:f:gi:lpqt0" opt; do
+    while getopts ":hd:e:f:gi:lkpt0" opt; do
         case "$opt" in
+            d) # delimeter
+                dlm="$OPTARG"
+                ;;
             e) # run a command using selection as an argument
                 exe="${exe:-$OPTARG}"
                 run="${run:-1}"
@@ -144,7 +150,7 @@ EOF
             g) # try to use a graphical program for line selection
                 gfx=1
                 ;;
-            i) # selection file
+            i) # selection input file
                 inp="$OPTARG"
                 if ! [ -r "$inp" ]; then
                     printf "%s\n" "Bad input file" >&2
@@ -154,7 +160,7 @@ EOF
             t) # try to use a terminal program for line selection
                 gfx=0
                 ;;
-            l) # list detected plugins
+            l) # just list available plugins
                 while read -r f; do
                     if [[ "$f" == choose_* ]]; then
                         printf "%s\n" "${f##choose_}"
@@ -162,14 +168,15 @@ EOF
                 done < <(compgen -c) | sort
                 return 0
                 ;;
-            p) # just print
-                run=0
-                ;;
-            q) # list supported programs
+            k) # just list supported programs
                 printf "%s\n" "${gbins[@]}" "${tbins[@]}" | sort
                 return 0
                 ;;
-            0) # handle null separated lines
+
+            p) # print selected line instead of running anything
+                run=0
+                ;;
+            0) # handle null separated input
                 nul=1
                 ;;
             h) # write some help text
@@ -192,6 +199,7 @@ EOF
         local plug="choose_$1"
         if ! type "$plug" &>/dev/null; then
             printf "%s command not found.\n" "$plug" >&2
+            return 2
         fi
         shift
         CHOOSE_RUN="$run" CHOOSE_EXE="$exe" CHOOSE_GUI="$gfx" \
@@ -230,31 +238,33 @@ EOF
           esac < <(if ((nul)); then printf "%q\n" "${lines[@]}"
                    else printf "%s\n" "${lines[@]}"; fi)
        )
-    # rectify shell quoted selection
+    # rectify shell quoted line
     if ((nul)); then
         out=$(eval printf "%s" "$out")
     fi
-    # maybe narrow to a specific field
+    # maybe narrow down line by field
     if [ -n "$fld" ]; then
-        read -r -a toks <<< "$out"
+        IFS="$dlm" read -r -a toks <<< "$out"
         case "$fld" in
             [[:digit:]])  out="${toks[$fld]}" ;;
             [[:digit:]]:) out="${toks[*]:${fld%%:}}" ;;
         esac
     fi
-    # no selection
+    # terminate if the line is empty
     if [ -z "$out" ]; then
         return 3
     fi
-    # maybe run something with the selection
+    # maybe run something with the line
     if ((run)) && [ -n "$exe" ]; then
-        local cmd
+        # shell quote argument for eval
+        local arg; arg=$(printf "%q\n" "${out}")
+        # insert argument into command string replacing {} if present
+        local cmd="${exe} \"${arg}\""
         if [[ "$exe" =~ \{\} ]]; then
-            cmd="${exe/\{\}/$out}"
-        else
-            cmd="${exe} ${out}"
+            cmd="${exe/\{\}/\"${arg}\"}"
         fi
-        CHOOSE_RUN="" CHOOSE_EXE="" CHOOSE_GUI="" eval "$cmd"
+        # run command, clearing choose environment to permit nesting
+        CHOOSE_RUN="" CHOOSE_EXE="" CHOOSE_GUI="$gfx" eval "$cmd"
         return $?
     fi
     # write selection out
@@ -273,7 +283,12 @@ complete -F _choose choose
 
 # choose from available plugins
 choose_meta() {
-    choose -e "choose" -f 0: < <(choose -l)
+    choose -e "choose" -f 0: -i <(choose -l)
+}
+
+# choose a value from arguments
+choose_value() {
+    choose < <(printf "%s\n" "$@")
 }
 
 # choose a command on your path
@@ -340,7 +355,7 @@ choose_mpc() {
 choose_uri() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:black:black:green}"
     require urifind || return 255
-    choose -e sensible-browser < <(urifind)
+    choose -e sensible-browser -i <(urifind)
 }
 
 # choose a password out of pass
@@ -359,26 +374,21 @@ choose_lastpass() {
     IFS='[' choose -f 0 -e "lpass show --password" < <(lpass ls)
 }
 
-# choose an xclip selection, in or out
+# choose an xclip selection
 choose_xclip() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:grey:black:white}"
     require xclip || return 255
-    # read or write from buffer
-    local exe="xclip -o -selection"
-    if ! [ -t 0 ]; then
-        exe="xclip -i -selection"
-    fi
+    # remaining arguments are passed to xclip
+    local opt="${*:--o}"
     # generate menu line for each xclip selection
-    local mod buf lenc lenl
+    local mod buf
     declare -a menu
     for mod in clipboard primary secondary; do
          buf=$(xclip -o -selection "$mod" 2>/dev/null)
-         lenc=$(wc -c <<< "$buf")
-         lenl=$(wc -l <<< "$buf")
-         menu+=("$(printf "%s %s %s\n" "$mod" "$lenc" "$lenl")")
+         menu+=("$(printf "%s %s %s\n" "$mod" "${#buf}")")
     done
     # choose an xclip selection
-    choose -f 0 -i <(printf "%s\n" "${menu[@]}")  -e "$exe"
+    choose -f 0 -i <(printf "%s\n" "${menu[@]}") -e "xclip -selection {} $opt"
 }
 
 # choose an info page to open
@@ -390,14 +400,14 @@ choose_info() {
         return 1
     fi
     # choose an info page
-    choose -f 0 -e "info" < <(info -k .)
+    choose -f 0 -e "info" -i <(info -k .)
 }
 
 # choose a manual page to open
 choose_man() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:white:yellow:black}"
     require man || return 255
-    choose -f 0 -e "man" < <(man -k .)
+    choose -f 0 -e "man" -i <(man -k .)
 }
 
 # choose a process by PID
@@ -433,7 +443,7 @@ choose_signal() {
 # choose a process to kill
 choose_kill() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:red:green:black}"
-    choose -t -e 'kill -$(choose signal)' process
+    choose -e 'kill -$(choose signal)' process
 }
 
 # choose a dictionary word
@@ -481,6 +491,18 @@ choose_git() {
             return 3
             ;;
     esac
+}
+
+choose_tmux() {
+    require tmux || return 255
+    local what="${1:-session}"
+    case "$what" in
+        session)
+            # choose a tmux session
+            choose -d: -f0 -e 'tmux attach-session -t {}' -i <(tmux list-sessions)
+            ;;
+    esac
+    return 1
 }
 
 # choose corrections from input
@@ -545,7 +567,7 @@ choose_ansibledoc() {
 # choose a surfraw elvi
 choose_surfraw() {
     require surfraw || return 255
-    choose -f 0 -e "surfraw" < <(surfraw -elvi)
+    choose -f 0 -e "surfraw {} $*" < <(surfraw -elvi)
 }
 
 # run it unless sourced
