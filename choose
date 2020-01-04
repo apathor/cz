@@ -3,9 +3,9 @@
 # choose - Line selection abstraction (plus utilities!)
 
 # Supported tools:
-#  dmenu    : https://tools.suckless.org/dmenu/
+#  dmenu    : https://tools.suckless.org/dmenu
 #  fzf      : https://github.com/junegunn/fzf
-#  iselect  : http://www.ossp.org/pkg/tool/iselect/
+#  iselect  : http://www.ossp.org/pkg/tool/iselect
 #  pick     : https://github.com/mptre/pick
 #  pipedial : https://code.reversed.top/user/xaizek/pipedial
 #  rofi     : https://github.com/davatorium/rofi
@@ -189,7 +189,7 @@ EOF
                 return 0
                 ;;
             \?) # invalid option?
-                printf "Bad option: -%s\n %s\n" "$OPTARG" "$use" >&2
+                printf "Bad option: -%s\n%s\n" "$OPTARG" "$use" >&2
                 return 2
                 ;;
         esac
@@ -198,13 +198,20 @@ EOF
     # allow an indefinite article
     if [[ "$1" =~ ^an?$ ]]; then shift; fi
     # plugins - any command in the format 'choose_$WORD'
-    if [ -n "$1" ]; then
-        local plug="choose_$1"
-        if ! type "$plug" &>/dev/null; then
-            printf "%s command not found.\n" "$plug" >&2
+    if [ -n "$*" ]; then
+        local plug=""
+        local args=("$@")
+        for ((word=${#args[@]}; word>0; word--)); do
+            plug="${args[*]:0:$word}"
+            plug="choose_${plug// /_}"
+            if type "$plug" >&/dev/null; then break; fi
+            plug=""
+        done
+        if [ -z "$plug" ]; then
+            printf "No plugin matching '%s'.\n" "$*" >&2
             return 2
         fi
-        shift
+        shift "$word"
         CHOOSE_RUN="$run" CHOOSE_EXE="$exe" CHOOSE_GUI="$gfx" "$plug" "$@"
         return $?
     fi
@@ -291,7 +298,6 @@ EOF
             # no input for commands that require an attached terminal
             CHOOSE_RUN="" CHOOSE_EXE="" CHOOSE_GUI="$gfx" eval "${cmd[@]}"
         fi
-
         return $?
     fi
     # write selection out
@@ -302,14 +308,63 @@ EOF
 
 # choose command completion
 function _choose() {
-    # TODO better option argument completion
+    # get current and previous word
+    local pre=""
+    if ((COMP_CWORD)); then pre="${COMP_WORDS[COMP_CWORD - 1]}"; fi
     local cur="${COMP_WORDS[COMP_CWORD]}"
-    local opts=(-{e,f,g,h,i,l,k,p,t,0})
-    COMPREPLY=($(compgen -W "$(choose -l) ${opts[*]}" -- "$cur"))
+    # maybe the previous word is an option that expects an argument
+    case "$pre" in
+        -d) COMPREPLY=(); return ;;
+        -e) COMPREPLY=($(compgen -c -- "$cur")); return ;;
+        -f) COMPREPLY=($(compgen -W "0 1 2 3 4 5 6 7 8 9" -- "$cur")); return ;;
+        -i) COMPREPLY=($(compgen -f -- "$cur")); return ;;
+    esac
+    # choose has some options
+    declare -A opts
+    for opt in -{e,f,g,h,i,l,k,p,t,0}; do opts["$opt"]=0; done
+    # choose has some extensions
+    # MAYBE complete the first words of extensions
+    declare -a exts
+    exts=($(choose -l))
+    # scan all previous words
+    local base=""
+    local last word
+    for ((i=1; i < COMP_CWORD; i++)); do
+        word="${COMP_WORDS[$i]}"
+        last="${COMP_WORDS[$i-1]}"
+        # have options ended?
+        if [[ "$last" =~ ^-[[:alpha:]]^ ]]; then
+            # record options already seen
+            unset opts["$word"]
+        elif [[ "$word" =~ ^[[:alpha:]]+ ]]; then
+            # check if options have ended
+            if [[ "$last" =~ ^-[defi]$ ]]; then continue; fi
+            opts=()
+            # concat command prefix
+            base="${base}_${word}"
+            base="${base##_}"
+       fi
+    done
+    # maybe complete the next part of a multi-word command
+    if [ -n "$base" ]; then
+        declare -a next
+        local pat="^${base}_([[:alpha:]]+)"
+        for ext in "${exts[@]}"; do
+            if [[ "$ext" =~ $pat ]]; then
+                next+=("${BASH_REMATCH[1]}")
+            fi
+        done
+        if (("${#next[@]}")); then
+            COMPREPLY=($(compgen -W "${next[*]}" -- "$cur"))
+        fi
+        return
+    fi
+    # complete next command token or all arguments and options
+    COMPREPLY=($(compgen -W "${!opts[*]} ${exts[*]}" -- "$cur"))
 }
 complete -F _choose choose
 
-# choose from available plugins
+# choose a choose plugin
 choose_meta() {
     choose -e "choose" -f 0: -i <(choose -l)
 }
@@ -319,9 +374,14 @@ choose_value() {
     choose -i <(printf "%s\n" "$@")
 }
 
+# choose a line by number from input
+choose_lineno() {
+    choose -d : -f 0 < <(grep -n .)
+}
+
 # choose a command on your path
 choose_command() {
-    choose -e "{}" -i <(compgen -c)
+    choose -e "exec" -i <(compgen -c)
 }
 
 # choose a host in your hostfile
@@ -339,16 +399,49 @@ choose_group() {
     choose < <(compgen -g)
 }
 
+# choose some bash stuff
+choose_bash_help() {
+    mapfile -t m < <(help -s '*')
+    choose -e 'help {}' -d : -f 0 < <(printf "%s\n" "${m[@]:2}")
+}
+
+choose_bash_completion() {
+    choose < <(complete -p)
+}
+
+choose_bash_var() {
+    choose < <(compgen -v)
+}
+
+choose_bash_job() {
+    choose -f 1 < <(jobs -l)
+}
+
+choose_bash_bind_function() {
+    choose < <(bind -l)
+}
+
+choose_bash_bind_command() {
+    choose -d : -f 1: < <(bind -X)
+}
+choose_bash_bind_key() {
+    choose -d : -f 0 < <({ bind -p; bind -X; bind -s; } | grep -v '^#')
+}
+
+choose_bash_bind_var() {
+    choose < <(bind -v)
+}
+
 # choose a file under the current or given directory
-choose_file() {
+choose_find_file() {
     require find || return 255
-    choose -0 < <(find "${1:-.}" -maxdepth 5 -type f -print0)
+    choose -0 -i <(find "${1:-.}" -wholename "${2:-*}" -type f -print0)
 }
 
 # choose a directory under the current or given directory
-choose_dir() {
+choose_find_dir() {
     require find || return 255
-    choose -0 < <(find "${1:-.}" -maxdepth 5 -type d -print0)
+    choose -0 -i <(find "${1:-.}" -wholename "${2:-*}" -type d -print0)
 }
 
 # choose a line from your history
@@ -364,19 +457,24 @@ choose_apparix() {
     choose -f 1 -e "cd" < <(apparix | awk '/^j/ { print $2, $3 }')
 }
 
-# choose an MPD track by index from playlist
-choose_mpc() {
+# choose an mpd track by index from playlist
+choose_mpd_track() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:blue:blue:white}"
     require mpc || return 255
     choose -f 0 -e "mpc play {}" \
            < <(mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
 }
 
+choose_mpd_output() {
+    require mpc || return 255
+    choose -f 1 -e "mpc enable {}" < <(mpc outputs)
+}
+
 # choose a URI filter from input
 choose_uri() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:black:black:green}"
     require urifind || return 255
-    choose -e "sensible-browser" -i <(urifind -su)
+    choose -e 'sensible-browser' < <(urifind -su)
 }
 
 # choose a password out of pass
@@ -384,7 +482,7 @@ choose_pass() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-grey:purple:white:black}"
     require pass find sed || return 255
     local pdir="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
-    choose -e "pass show" \
+    choose -e 'pass show' \
            < <(find "$pdir" -type f -name '*.gpg' | sed "s#\.gpg##; s#$pdir##")
 }
 
@@ -392,7 +490,14 @@ choose_pass() {
 choose_lastpass() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:black:black:green}"
     require lpass || return 255
-    IFS='[' choose -f 0 -e "lpass show --password" < <(lpass ls)
+    local menu=()
+    local pat='^(.*[^/]) \[id: ([[:digit:]]+)\]$'
+    while read -r item; do
+        if [[ "$item" =~ $pat ]]; then
+            menu+=("${BASH_REMATCH[2]} ${BASH_REMATCH[1]}")
+        fi
+    done < <(lpass ls)
+    choose -f 0 -e "lpass show --password" < <(printf "%s\n" "${menu[@]}")
 }
 
 # choose an xclip selection
@@ -408,27 +513,27 @@ xclip_brief() {
 choose_xclip_in() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-grey:black:black:red}"
     require xclip || return 255
-    choose -f 0 -e "xclip -selection {} -i" -i <(xclip_brief)
+    choose -f 0 -e 'xclip -selection {} -i' -i <(xclip_brief)
 }
 
 choose_xclip_out() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-grey:black:black:green}"
     require xclip || return 255
-    choose -f 0 -e "xclip -selection {} -o" < <(xclip_brief)
+    choose -f 0 -e 'xclip -selection {} -o' -i <(xclip_brief)
 }
 
 # choose an info page to open
 choose_info() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:blue:black:green}"
     require info || return 255
-    choose -f 0 -e "info" -i <(info -k .)
+    choose -f 0 -e 'info' -i <(info -k .)
 }
 
 # choose a manual page to open
 choose_man() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:white:yellow:black}"
     require man || return 255
-    choose -f 0 -e "man" -i <(man -k .)
+    choose -f 0 -e 'man' -i <(man -k .)
 }
 
 # choose a process by PID
@@ -471,51 +576,78 @@ choose_kill() {
 
 # choose a word from input
 choose_word() {
-    require grep sort uniq || return 255
-    choose < <(grep -Eo '([^[:space:]])+' | sort | uniq)
+    require grep sort || return 255
+    choose < <(grep -Eo '([^[:space:]])+' | sort -u)
 }
 
 # choose some git related stuff
 choose_git_file() {
     require git grep || return 255
-    choose -f 1 < <(git status -sbu | grep -v ^#)
+    choose -f 1 -i <(git status -sbu | grep -v ^#)
 }
 
 choose_git_branch() {
     require git || return 255
-    choose -f 0 < <(git branch)
+    choose -f 0 -i <(git branch)
 }
 
 choose_git_tag() {
     require git || return 255
-    choose -f 0 -e 'git checkout' < <(git tag)
+    choose -f 0 -i <(git tag)
+}
+
+choose_git_commit() {
+    require git || return 255
+    choose -f 0 -e 'git show' < <(git log --pretty=format:'%h %cI %s (%ce)' --abbrev-commit)
 }
 
 # choose some tmux related stuff
+choose_tmux_command() {
+    require tmux || return 255
+    choose -f 0 -i <(tmux list-commands)
+}
+
 choose_tmux_session() {
     require tmux || return 255
-    choose -d: -f0 -e 'tmux attach-session -t {}' -i <(tmux list-sessions)
+    choose -d : -f 0 -e 'tmux attach-session -t {}' -i <(tmux list-sessions)
+}
+
+
+choose_tmux_pane() {
+    require tmux || return 255
+    choose -d : -f 0 -e 'tmux select-pane -t {}' -i <(tmux list-panes)
 }
 
 choose_tmux_window() {
     require tmux || return 255
-    choose -d: -f0 -e 'tmux select-window -t {}' -i <(tmux list-windows)
-}
-
-choose_tmux_pane() {
-    require tmux || return 255
-    choose -d: -f0 -e 'tmux select-pane -t {}' -i <(tmux list-panes)
+    choose -d : -f 0 -e 'tmux select-window -t {}' -i <(tmux list-windows)
 }
 
 # choose some screen related stuff
 choose_screen_session() {
     require screen || return 255
-    choose -f0 -e 'screen -rd {}' -i <(screen -ls | grep pts)
+    choose -f 0 -e 'screen -rd {}' -i <(screen -ls | grep pts)
+}
+
+# choose apt related stuff
+choose_apt_package() {
+    require apt-cache || return 255
+    choose -f 0 -e 'apt-cache show' < <(apt-cache search .)
+}
+
+# choose pulseaudio related stuff
+choose_pulseaudio_sink() {
+    require pactl || return 255
+    choose -f 0 -e 'pactl set-sink-mute {} toggle' < <(pactl list short sinks)
+}
+
+choose_pulseaudio_source() {
+    require pactl || return 255
+    choose -f 0 -e 'pactl set-source-mute {} toggle' < <(pactl list short sources)
 }
 
 # choose corrections from input
 choose_ispell() {
-    # require ispell
     require ispell || return 255
     # read input lines
     mapfile -t lines
