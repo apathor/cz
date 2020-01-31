@@ -17,11 +17,11 @@
 # by Mike Lalumiere 2019
 ###
 
-require() {
-    local clr="${FUNCNAME[1]}"
+req() {
+    local x=""
     for x in "$@"; do
         if ! hash "$x" &>/dev/null; then
-            printf "%s %s is required!\n" "$clr" "$x" >&2
+            printf "%s -- %s is required!\n" "${FUNCNAME[1]}" "$x" >&2
             return 1
         fi
     done
@@ -42,6 +42,7 @@ EOF
                ;;
         esac
     done
+    shift $((OPTIND - 1))
     # prepend a number to each line of input
     local ind lines
     mapfile -t lines
@@ -88,13 +89,17 @@ OPTIONS
  -0         : Read null terminated lines.
  -d DELIM   : Split on given delimeter during field extraction.
  -f FIELD   : Extract the field at given index from selected line.
+ -e COMMAND : Run given command replacing '{}' with the selection.
+ -i FILE    : Read selections from given file instead of stdin.
 
- -e COMMAND : Run given command replacing '{}' with selection.
- -i FILE    : Read selections from given file. Pipe stdin to executed command.
- -p         : Print selection instead of executing a command.
+Mutually exclusive options -p, -q, -r set the program mode.
+ -p         : Select a line and print it. This is the default.
+ -q         : Select a line then print the command given by option -e.
+ -r         : Select a line then run the command given by option -e.
 
- -g         : Force graphical mode.
- -t         : Force terminal mode.
+Mutually exclusive options -g and -t set preferred line selection tool interface.
+ -g         : Use a graphical line selection program.
+ -t         : Use a text terminal line selection program.
 
 ENVIRONMENT
  CHOOSE_GUI         : preferred interface - 1=graphical 0=terminal
@@ -104,9 +109,9 @@ ENVIRONMENT
 
 EXAMPLES
  $ printf "%s\n" foo bar qux | choose
- $ find . -name '*.yml' -print0 | choose -e "\$EDITOR" -0
+ $ find . -name '*.yml' -print0 | choose -0
  $ choose -e 'sudo -u {} -i' -d: -f0 < /etc/passwd
- $ cd \$(choose dir)
+ $ cd \$(choose find dir)
  $ choose -e 'dig {} MX' host
  $ choose \$(choose -l | choose)
  $ choose xclip -o | choose -e firefox uri
@@ -127,31 +132,33 @@ EOF
     done
     # accept options
     # TODO optional prompt?
-    local fld=""                 # integer fields to extract from selected text
-    local exe="${CHOOSE_EXE}"    # command to run with selected text
-    local run="${CHOOSE_RUN:-1}" # boolean to run a command or just print selected text
-    local inp="/dev/stdin"       # selection input file
+    local fld="" sel=""       # field or range of fields to extract from selected line
+    local exe="${CHOOSE_EXE}" # command template to run with selected line
+    local run="${CHOOSE_RUN}" # program mode (0:print selection 1:print command 2:run command)
+    local inp="/dev/stdin"    # input file from which to select a line
     local nul=0
     local dlm="$IFS"
     local opt OPTIND OPTARG
-    while getopts ":hd:e:f:gi:lkpt0" opt; do
+    while getopts ":hd:e:f:gi:lkpqrt0" opt; do
         case "$opt" in
             d) # delimeter
                 dlm="$OPTARG"
                 ;;
             e) # run a command using selection as an argument
                 exe="${exe:-$OPTARG}"
-                run="${run:-1}"
+                run="${run:-2}"
                 if ! [[ "$exe" =~ \{\} ]]; then
                     exe="$exe {}"
                 fi
                 ;;
             f) # select this field or range of fields
                 fld="$OPTARG"
-                if ! [[ "$fld" =~ [[:digit:]]:? ]]; then
-                    printf "%s\n" "Bad field index" >&2
+                if ! [[ "$fld" =~ ^([[:digit:]]+)(:([[:digit:]]+)?)?$ ]]; then
+                    printf "%s\n" "Bad field selection" >&2
                     return 2
                 fi
+                fld="${BASH_REMATCH[1]}"
+                sel="${BASH_REMATCH[3]:-${BASH_REMATCH[2]}}"
                 ;;
             g) # try to use a graphical program for line selection
                 gfx=1
@@ -180,6 +187,12 @@ EOF
                 ;;
             p) # print selected line instead of running anything
                 run=0
+                ;;
+            q) # print command that would be run
+                run=1
+                ;;
+            r) # run given command
+                run=2
                 ;;
             0) # handle null separated input
                 nul=1
@@ -265,17 +278,23 @@ EOF
     # maybe extract some fields from the line
     if [ -n "$fld" ]; then
         IFS="$dlm" read -r -a toks <<< "$out"
-        case "$fld" in
-            [[:digit:]])  out="${toks[$fld]}" ;;
-            [[:digit:]]:) out="${toks[*]:${fld%%:}}" ;;
-        esac
+        if [ -z "$sel" ]; then
+            # N - one specific field
+            out="${toks[${fld}]}"
+        elif [ "$sel" == ":" ]; then
+            # N: - a slice of fields
+            out="${toks[*]:${fld}}"
+        else
+            # N:X - a range of fields
+            out="${toks[*]:${fld}:${sel}}"
+        fi
     fi
     # terminate if the line is empty
     if [ -z "$out" ]; then
         return 3
     fi
-    # maybe run something with the line
-    if ((run)) && [ -n "$exe" ]; then
+    # maybe generate command
+    if [ -n "$exe" ]; then
         # insert argument into command string
         declare -a cmd
         while read -r line; do
@@ -289,19 +308,26 @@ EOF
                 fi
             done
         done <<< "$exe"
-        # run command
-        if [ -n "${stdin[*]}" ]; then
-            # input for filter commands
-            CHOOSE_RUN="" CHOOSE_EXE="" CHOOSE_GUI="$gfx" eval "${cmd[@]}" \
-                      < <(printf "%s\n" "${stdin[@]}")
-        else
-            # no input for commands that require an attached terminal
-            CHOOSE_RUN="" CHOOSE_EXE="" CHOOSE_GUI="$gfx" eval "${cmd[@]}"
-        fi
-        return $?
     fi
-    # write selection out
-    printf "%s\n" "$out"
+    # do something with the selection depending on mode
+    case "${run:-0}" in
+        0) # print selection
+            printf "%s\n" "$out"
+            ;;
+        1) # print command
+            printf "%s\n" "${cmd[*]}"
+            ;;
+        2) # run command
+            if [ -n "${stdin[*]}" ]; then
+                # input for filter commands
+                CHOOSE_RUN="" CHOOSE_EXE="" CHOOSE_GUI="$gfx" eval "${cmd[@]}" < <(printf "%s\n" "${stdin[@]}")
+            else
+                # no input for commands that need an attached terminal
+                CHOOSE_RUN="" CHOOSE_EXE="" CHOOSE_GUI="$gfx" eval "${cmd[@]}"
+            fi
+            return $?
+            ;;
+    esac
 }
 
 ####
@@ -333,10 +359,10 @@ function _choose() {
         word="${COMP_WORDS[$i]}"
         last="${COMP_WORDS[$i-1]}"
         # have options ended?
-        if [[ "$last" =~ ^-[[:alpha:]]^ ]]; then
+        if [[ "$last" =~ ^-[[:alnum:]]^ ]]; then
             # record options already seen
             unset opts["$word"]
-        elif [[ "$word" =~ ^[[:alpha:]]+ ]]; then
+        elif [[ "$word" =~ ^[[:alnum:]]+ ]]; then
             # check if options have ended
             if [[ "$last" =~ ^-[defi]$ ]]; then continue; fi
             opts=()
@@ -348,7 +374,7 @@ function _choose() {
     # maybe complete the next part of a multi-word command
     if [ -n "$base" ]; then
         declare -a next
-        local pat="^${base}_([[:alpha:]]+)"
+        local pat="^${base}_([[:alnum:]]+)"
         for ext in "${exts[@]}"; do
             if [[ "$ext" =~ $pat ]]; then
                 next+=("${BASH_REMATCH[1]}")
@@ -366,6 +392,7 @@ complete -F _choose choose
 
 # choose a choose plugin
 choose_meta() {
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-yellow:black:black:yellow}"
     choose -e "choose" -f 0: -i <(choose -l)
 }
 
@@ -376,120 +403,152 @@ choose_value() {
 
 # choose a line by number from input
 choose_lineno() {
-    choose -d : -f 0 < <(grep -n .)
+    choose -d : -f 0 -i <(grep -n .)
 }
 
 # choose a command on your path
 choose_command() {
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:dark green:white:black}"
     choose -e "exec" -i <(compgen -c)
 }
 
 # choose a host in your hostfile
 choose_host() {
-    choose < <(compgen -A hostname | sort -u)
+    choose -i <(compgen -A hostname | sort -u)
 }
 
 # choose a system user
 choose_user() {
-    choose < <(compgen -u)
+    req getent || return 255
+    choose -f 0 -d : -i <(getent user)
 }
 
 # choose a system group
 choose_group() {
-    choose < <(compgen -g)
+    req getent || return 255
+    choose -f 0 -d : -i <(getent group)
+}
+
+choose_protocol() {
+    req getent || return 255
+    choose -f 1 -i <(getent protocols)
+}
+
+choose_port() {
+    req getent || return 255
+    choose -f 1 -i <(getent services | sed 's/\// /')
 }
 
 # choose some bash stuff
 choose_bash_help() {
     mapfile -t m < <(help -s '*')
-    choose -e 'help {}' -d : -f 0 < <(printf "%s\n" "${m[@]:2}")
+    choose -e 'help {}' -d : -f 0 -i <(printf "%s\n" "${m[@]:2}")
 }
 
 choose_bash_completion() {
-    choose < <(complete -p)
+    choose -i <(complete -p)
 }
 
 choose_bash_var() {
-    choose < <(compgen -v)
+    choose -i <(compgen -v)
 }
 
 choose_bash_job() {
-    choose -f 1 < <(jobs -l)
+    choose -f 1 -i <(jobs -l)
 }
 
 choose_bash_bind_function() {
-    choose < <(bind -l)
+    choose -i <(bind -l)
 }
 
 choose_bash_bind_command() {
-    choose -d : -f 1: < <(bind -X)
+    choose -d : -f 1: -i <(bind -X)
 }
 choose_bash_bind_key() {
-    choose -d : -f 0 < <({ bind -p; bind -X; bind -s; } | grep -v '^#')
+    choose -d : -f 0 -i <({ bind -p; bind -X; bind -s; } | grep -v '^#')
 }
 
 choose_bash_bind_var() {
-    choose < <(bind -v)
+    choose -i <(bind -v)
+}
+
+# choose a line found with grep
+choose_grep() {
+    req grep || return 255
+    choose -d : -f 0:1 -i <(grep -rn "$@" .)
 }
 
 # choose a file under the current or given directory
 choose_find_file() {
-    require find || return 255
-    choose -0 -i <(find "${1:-.}" -wholename "${2:-*}" -type f -print0)
+    req find || return 255
+    choose -0 -i <(find "${1:-.}" -iwholename "${2:-*}" -type f -print0)
 }
 
 # choose a directory under the current or given directory
 choose_find_dir() {
-    require find || return 255
-    choose -0 -i <(find "${1:-.}" -wholename "${2:-*}" -type d -print0)
+    req find || return 255
+    choose -0 -i <(find "${1:-.}" -iwholename "${2:-*}" -type d -print0)
 }
 
 # choose a line from your history
 choose_history() {
-    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:blue:black:green}"
-    require sort || return 255
-    choose -f 3: -e "eval {}" < <(HISTTIMEFORMAT="%F %T " history | sort -r -n)
+    req sort || return 255
+    choose -f 3: -e "eval {}" -i <(HISTTIMEFORMAT="%F %T " history | sort -r -n)
 }
 
 # choose an apparix jump bookmark
 choose_apparix() {
-    require awk apparix || return 255
-    choose -f 1 -e "cd" < <(apparix | awk '/^j/ { print $2, $3 }')
+    req awk apparix || return 255
+    choose -f 1 -e "cd" -i <(apparix | awk '/^j/ { print $2, $3 }')
 }
 
 # choose an mpd track by index from playlist
 choose_mpd_track() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:blue:blue:white}"
-    require mpc || return 255
+    req mpc || return 255
     choose -f 0 -e "mpc play {}" \
-           < <(mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
+           -i <(mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
 }
 
+# choose an mpd output
 choose_mpd_output() {
-    require mpc || return 255
-    choose -f 1 -e "mpc enable {}" < <(mpc outputs)
+    req mpc || return 255
+    choose -f 1 -e "mpc enable {}" -i <(mpc outputs)
 }
+
+# choose an mpd tag of various types
+declare t="" f=""
+for t in artist album genre composer; do
+    read -r -d '' f <<EOF
+choose_mpd_$t() {
+    req mpc || return 255
+    choose -e 'mpc search $t' -i <(mpc list $t)
+}
+EOF
+    eval "$f"
+done
+unset t f
 
 # choose a URI filter from input
 choose_uri() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:black:black:green}"
-    require urifind || return 255
+    req urifind || return 255
     choose -e 'sensible-browser' < <(urifind -su)
 }
 
 # choose a password out of pass
 choose_pass() {
-    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-grey:purple:white:black}"
-    require pass find sed || return 255
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:purple:black:red}"
+    req pass find sed || return 255
     local pdir="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
     choose -e 'pass show' \
-           < <(find "$pdir" -type f -name '*.gpg' | sed "s#\.gpg##; s#$pdir##")
+           -i <(find "$pdir" -type f -name '*.gpg' | sed "s#\.gpg##; s#$pdir##")
 }
 
 # choose a lastpass password
 choose_lastpass() {
-    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:black:black:green}"
-    require lpass || return 255
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:purple:red:black}"
+    req lpass || return 255
     local menu=()
     local pat='^(.*[^/]) \[id: ([[:digit:]]+)\]$'
     while read -r item; do
@@ -511,35 +570,35 @@ xclip_brief() {
 }
 
 choose_xclip_in() {
-    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-grey:black:black:red}"
-    require xclip || return 255
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:dark gray:black:red}"
+    req xclip || return 255
     choose -f 0 -e 'xclip -selection {} -i' -i <(xclip_brief)
 }
 
 choose_xclip_out() {
-    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-grey:black:black:green}"
-    require xclip || return 255
+    CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:dark gray:black:green}"
+    req xclip || return 255
     choose -f 0 -e 'xclip -selection {} -o' -i <(xclip_brief)
 }
 
 # choose an info page to open
 choose_info() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:blue:black:green}"
-    require info || return 255
+    req info || return 255
     choose -f 0 -e 'info' -i <(info -k .)
 }
 
 # choose a manual page to open
 choose_man() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-black:white:yellow:black}"
-    require man || return 255
-    choose -f 0 -e 'man' -i <(man -k .)
+    req man sed || return 255
+    choose -f 0 -e 'man' -i <(man -k . | sed 's/ (/./;s/)//')
 }
 
 # choose a process by PID
 choose_process() {
     CHOOSE_DMENU_COLOR="${CHOOSE_DMENU_COLOR:-white:blue:black:orange}"
-    require ps || return 255
+    req ps || return 255
     # build a table of processes
     mapfile table < <(ps ux)
     read -r -a cols <<< "${table[0]}"
@@ -563,7 +622,7 @@ choose_signal() {
         signals+=("$line")
     done
     # choose a signal
-    choose -f 1 < <(printf "%s\n" "${signals[@]}")
+    choose -f 0 < <(printf "%s\n" "${signals[@]}")
 }
 
 # choose a process to kill
@@ -576,79 +635,112 @@ choose_kill() {
 
 # choose a word from input
 choose_word() {
-    require grep sort || return 255
-    choose < <(grep -Eo '([^[:space:]])+' | sort -u)
+    req grep sort || return 255
+    choose < <(grep -Eo '([[:alpha:][:digit:]])+' | sort -u)
 }
 
 # choose some git related stuff
 choose_git_file() {
-    require git grep || return 255
+    req git grep || return 255
     choose -f 1 -i <(git status -sbu | grep -v ^#)
 }
 
 choose_git_branch() {
-    require git || return 255
+    req git || return 255
     choose -f 0 -i <(git branch)
 }
 
 choose_git_tag() {
-    require git || return 255
+    req git || return 255
     choose -f 0 -i <(git tag)
 }
 
 choose_git_commit() {
-    require git || return 255
+    req git || return 255
     choose -f 0 -e 'git show' < <(git log --pretty=format:'%h %cI %s (%ce)' --abbrev-commit)
+}
+
+# choose some systemd related stuff
+choose_systemd_service() {
+    req systemctl || return 255
+    choose -f 0 -e 'systemctl status' -i <(systemctl list-units -l --type=service --plain --no-legend)
+}
+
+choose_systemd_timer() {
+    req systemctl || return 255
+    choose -f 0 -e 'systemctl status' -i <(systemctl list-units -l --type=timer --plain --no-legend)
 }
 
 # choose some tmux related stuff
 choose_tmux_command() {
-    require tmux || return 255
+    req tmux || return 255
     choose -f 0 -i <(tmux list-commands)
 }
 
 choose_tmux_session() {
-    require tmux || return 255
+    req tmux || return 255
     choose -d : -f 0 -e 'tmux attach-session -t {}' -i <(tmux list-sessions)
 }
 
-
 choose_tmux_pane() {
-    require tmux || return 255
+    req tmux || return 255
     choose -d : -f 0 -e 'tmux select-pane -t {}' -i <(tmux list-panes)
 }
 
 choose_tmux_window() {
-    require tmux || return 255
+    req tmux || return 255
     choose -d : -f 0 -e 'tmux select-window -t {}' -i <(tmux list-windows)
 }
 
 # choose some screen related stuff
 choose_screen_session() {
-    require screen || return 255
+    req screen || return 255
     choose -f 0 -e 'screen -rd {}' -i <(screen -ls | grep pts)
 }
 
 # choose apt related stuff
 choose_apt_package() {
-    require apt-cache || return 255
-    choose -f 0 -e 'apt-cache show' < <(apt-cache search .)
+    req apt-cache || return 255
+    local qry="${*:-.}"
+    choose -f 0 -e 'apt-cache show' -i <(apt-cache search "$qry")
 }
 
 # choose pulseaudio related stuff
 choose_pulseaudio_sink() {
-    require pactl || return 255
+    req pactl || return 255
     choose -f 0 -e 'pactl set-sink-mute {} toggle' < <(pactl list short sinks)
 }
 
 choose_pulseaudio_source() {
-    require pactl || return 255
+    req pactl || return 255
     choose -f 0 -e 'pactl set-source-mute {} toggle' < <(pactl list short sources)
 }
 
-# choose corrections from input
+# choose ip address
+choose_ip_route4() {
+    req ip || return 255
+    choose -f 0 -i <(ip -4 route)
+}
+
+choose_ip_route6() {
+    req ip || return 255
+    choose -f 0 -i <(ip -6 route)
+}
+
+choose_ip_addr4() {
+    req ip || return 255
+    choose -f 2 -i <(ip -br -4 addr)
+}
+
+choose_ip_addr6() {
+    req ip || return 255
+    choose -f 2 -i <(ip -br -6 addr)
+}
+
+
+# choose ispell corrections to replace in input text
 choose_ispell() {
-    require ispell || return 255
+    req ispell || return 255
     # read input lines
     mapfile -t lines
     # parse ispell spellcheck output
@@ -688,26 +780,120 @@ choose_ispell() {
 
 # choose a perldoc manual page to open
 choose_perldoc() {
-    require perldoc || return 255
+    req perldoc || return 255
     choose -f 0 -e "perldoc" < <(perldoc-search .)
 }
 
 # choose a pydoc manual page to open
 choose_pydoc() {
-    require pydoc || return 255
+    req pydoc || return 255
     choose -f 0 -e "pydoc" < <(pydoc -k .)
 }
 
 # choose an ansible manual page to open
 choose_ansibledoc() {
-    require ansible-doc || return 255
+    req ansible-doc || return 255
     choose -f 0 -e "ansible-doc" < <(ansible-doc -l)
 }
 
 # choose a surfraw elvi
 choose_surfraw() {
-    require surfraw || return 255
-    choose -f 0 -e "surfraw {} \"$1\"" < <(surfraw -elvi)
+    req surfraw || return 255
+    choose -f 0 -e "surfraw {} \"$1\"" < <(surfraw -elvi | sed 1d)
+}
+
+# choose some gcloud related stuff
+choose_gcloud_role() {
+    req gcloud jq || return 255
+    choose -f 0 -e 'gcloud iam roles describe' < \
+           <(gcloud --format=json iam roles list | jq -r '.[] | [.name, .description] | @tsv')
+}
+
+choose_gcloud_instance() {
+    req gcloud jq || return 255
+    choose -f 0 -e 'gcloud compute instances describe' < \
+           <(gcloud --format=json compute instances list | \
+                 jq -r '.[] | [.id, .name, (.zone | split("/")[-1]), .networkInterfaces[0].networkIP // "-", .accessConfigs[0].natIP // "-", .status] | @tsv')
+}
+
+choose_gcloud_project() {
+    req gcloud jq || return 255
+    choose -f 0 -e 'gcloud projects describe' < \
+           <(gcloud --format=json projects list | jq -r '.[] | [.projectId, .name] | @tsv')
+}
+
+choose_gcloud_serviceaccount() {
+    req gcloud jq || return 255
+    choose -f 0 -e 'gcloud iam service-accounts describe' < \
+           <(gcloud --format=json iam service-accounts list | jq -r '.[] | [.email, .displayName, .email] | @tsv')
+}
+
+choose_mime_type() {
+    req grep /etc/mime.types || return 255
+    choose -f 0 -i <(grep -v -e '^#' -e '^$' /etc/mime.types)
+}
+
+choose_locate() {
+    req locate || return 255
+    choose -0 -i <(locate -i -0 "${@:-$PWD}")
+}
+
+choose_xrandr_monitor() {
+    req xrandr sed || return 255
+    choose -f 0 -i <(xrandr --listmonitors | sed '1d')
+}
+
+choose_xrandr_provider() {
+    req xrandr sed || return 255
+    choose -f 0 -i <(xrandr --listproviders | sed '1d')
+}
+
+choose_json() {
+    req jq || return 255
+    if ! [ -f "$1" ]; then return 1; fi
+    choose -e "jq -r {} $1" -i <(jq -r '"." + (path(..) | map("[\(tojson)]") | join(""))' "$1")
+}
+
+choose_xml_element() {
+    req xmlstarlet || return 255
+    if ! [ -f "$1" ]; then return 1; fi
+    choose -e "xmlstarlet sel -B -t -c {} $1" < <(xmlstarlet el -v "$1")
+}
+
+choose_xml_value() {
+    req xmlstarlet || return 255
+    if ! [ -f "$1" ]; then return 1; fi
+    choose -e "xmlstarlet sel -B -t -v {} $1" < <(xmlstarlet el -v "$1")
+}
+
+choose_avconv_format() {
+    req avconv sed || return 255
+    choose -f 1 -i <(avconv -loglevel 0  -formats | sed 1,4d)
+}
+
+choose_avconv_encoder() {
+    req avconv sed || return 255
+    choose -f 1 -i <(avconv -loglevel 0 -encoders | sed 1,10d)
+}
+
+choose_avconv_decoder() {
+    req avconv sed || return 255
+    choose -f 1 -i <(avconv -loglevel 0 -decoders | sed 1,10d)
+}
+
+choose_sysctl() {
+    req sysctl || return 255
+    choose -f 0 -i <(sysctl -a 2>/dev/null)
+}
+
+choose_dict_strategy() {
+    req dict sed || return 255
+    choose -f 0 -i <(dict -S | sed 1d)
+}
+
+choose_dict_word() {
+    req dict sed || return 255
+    choose -f 0 -i <(dict -m -f -s re '.*')
 }
 
 # run it unless sourced
