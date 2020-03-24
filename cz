@@ -1,0 +1,1465 @@
+#!/usr/bin/env bash
+# cz - Line selection abstraction (plus utilities!)
+# (C) 2020 by Mike Lalumiere
+#
+# TODO Option to specify prompt (see 'dmenu -p foo')
+# TODO Optional caching of input text
+# TODO AWS/s3 plugins
+# TODO Plugin specific help text
+# TODO Completion hook function?
+
+if (("${BASH_VERSINFO[0]}" < 4)); then
+    printf "%s\n" "CZ requires bash 4!" >&2
+    return 255
+fi
+
+chuz() {
+    # usage
+    read -r -d '' use <<EOF
+chuz < INPUT > LINE
+Select one line from input.
+EOF
+    # accept options
+    local opt OPTIND OPTARG
+    while getopts ":h" opt; do
+        case "$opt" in
+            *) printf "%s\n" "$use" >&2
+               return 1
+               ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    # prepend a number to each line of input
+    local ind lines
+    mapfile -t lines
+    for ((ind=0; ind < "${#lines[@]}"; ind++)); do
+        printf "% 5d %s\n" "$ind" "${lines[$ind]}" >&2
+    done < <(printf "%s\n" "${lines[@]}")
+    # prompt interactively to select a line number
+    shopt -s nocasematch
+    while read -p "#? " -r sel < /dev/tty; do
+        if ! [[ "$sel" =~ ^[0-9]+$ ]]; then
+            # given a non-number perform a string search
+            for ((ind=0; ind < "${#lines[@]}"; ind++)); do
+                if [[ "${lines[$ind]}" =~ $sel ]]; then
+                    printf "% 5d %s\n" "$ind" "${lines[$ind]}" >&2
+                fi
+            done < <(printf "%s\n" "${lines[@]}")
+        else
+            # line number must be within boundaries
+            if [ "$sel" -lt "${#lines[@]}" ]; then
+                break
+            fi
+        fi
+    done
+    shopt -u nocasematch
+    # needs a selection
+    if [ -z "$sel" ]; then return 2; fi
+    # print the selected line
+    printf "%s\n" "${lines[$sel]}"
+}
+
+req() {
+    read -r -d '' use <<EOF
+req COMMAND/FILE [...]
+Require given files and commands.
+Succeed iff each given argument is a known command or readable file.
+EOF
+    # accept options
+    local opt OPTIND OPTARG
+    while getopts ":h" opt; do
+        case "$opt" in
+            *)
+                printf "%s\n" "$use" >&2
+                return 1
+                ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    # require each argument
+    local f=""
+    for f in "$@"; do
+        if ! ( [ -r "$f" ] || type "$f" &>/dev/null ); then
+            printf "%s -- %s is required!\n" "${FUNCNAME[1]}" "$f" >&2
+            return 1
+        fi
+    done
+}
+
+rleval() {
+    read -r -d '' use <<EOF
+rleval COMMAND...
+Evaluate given command and insert output into the bash readline buffer.
+This function is intended to be used with 'bind -x'.
+See READLINE_LINE in the bash manual page.
+EOF
+    if ! (($#)); then
+        printf "%s\n" "$use" >&2
+        return 1
+    fi
+    local a="${READLINE_LINE:0:$READLINE_POINT}"
+    local b="${READLINE_LINE:$READLINE_POINT}"
+    local s; s=$(eval "$@")
+    READLINE_LINE="${a}${s}${b}"
+    ((READLINE_POINT += ${#s}))
+}
+
+nth() {
+    read -r -d '' use <<EOF
+nth TEMPLATE [ARG ...]
+Render a string from TEMPLATE replacing variables of the following format:
+ {X}     - argument X
+ {X:}    - arguments X through end of arguments
+ {X:Y}   - arguments X through X + Y
+ {X,Y,Z} - arguments X, Y, and Z
+EOF
+    # accept options
+    local want=0
+    local opt OPTIND OPTARG
+    while getopts ":hpq" opt; do
+        case "$opt" in
+            p)
+                want=0
+                ;;
+            q)
+                want=1
+                ;;
+            *)
+                printf "%s\n" "$use" >&2
+                return 1
+                ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    # require template argument
+    local tmpl="$1"
+    shift
+    if [ -z "$tmpl" ]; then
+        printf "%s\n" "$use" >&2
+        return 1
+    fi
+    # remaining arguments are tokens
+    local toks=("$@")
+    local segs=()
+    # parse field selection
+    local str="" fld="" idx=0 suf=0 mode="text"
+    tmpl+=" "
+    while (( idx < "${#tmpl}" )); do
+        # consider each character
+        char="${tmpl:$(( idx++ )):1}"
+        # switch on parser mode
+        if [[ "$mode" == "text" ]]; then
+            # literal text mode
+            case "$char" in
+                '{')
+                    # start parsing a variable
+                    mode="var"
+                    ;;
+                ' ')
+                    # append a suffix or a new field
+                    if [ -n "$str" ]; then
+                        if ((suf)); then
+                            segs[-1]+="$str"
+                        else
+                            segs+=("$str")
+                        fi
+                    fi
+                    # reset for next string
+                    str=""
+                    suf=0
+                    ;;
+                *)
+                    # accumulate characters
+                    str+="$char"
+                    ;;
+            esac
+        elif [[ "$mode" == "var" ]]; then
+            # variable mode
+            case "$char" in
+                '{') # escaped literal curly brace
+                    str+="$char"
+                    ;;
+                [,\}]) # field separator
+                    # match and validate the field
+                    if ! [[ "$fld" =~ ^([[:digit:]]+)(:([[:digit:]]+)?)?$ ]]; then
+                        printf "Invalid field specifier '%s'\n" "$fld" >&2
+                        return 3
+                    fi
+                    # get matched groups - field and range
+                    local sel len
+                    sel="${BASH_REMATCH[1]}"
+                    len="${BASH_REMATCH[3]:-${BASH_REMATCH[2]}}"
+                    if [ -z "$len" ]; then
+                        # N - one specific field
+                        segs+=("$(printf "%q" "${str}${toks[$sel]}")")
+                    elif [ "$len" == ":" ]; then
+                        # N: - a slice of fields
+                        segs+=("$(printf "%s%q" "$str" "${toks[@]:${sel}:1}")")
+                        while read -r l; do
+                            if [ -z "$l" ]; then continue; fi
+                            segs+=("$(printf "%q" "$l")")
+                        done < <(printf "%s\n" "${toks[@]:$((sel + 1))}")
+                    else
+                        # N:X - a range of fields
+                        segs+=("$(printf "%s%q" "$str" "${toks[@]:${sel}:1}")")
+                        while read -r l; do
+                            if [ -z "$l" ]; then continue; fi
+                            segs+=("$(printf "%q" "$l")")
+                        done < <(printf "%s\n" "${toks[@]:$((sel + 1)):$((len - 1))}")
+                    fi
+                    # maybe done with this variable
+                    if [[ "$char" == '}' ]]; then
+                        mode="text"
+                        suf=1
+                    fi
+                    # reset field
+                    fld=""
+                    str=""
+                    ;;
+                [[:digit:]:]) # valid field chars
+                    fld+="$char"
+                    ;;
+                *) # invalid
+                    printf "Could not parse character '%s' at index %d.\n\n%s\n" "$char" "$idx" "$use" >&2
+                    return 3
+                    ;;
+            esac
+        fi
+    done
+    # check if parsing ended cleanly
+    if [[ "$mode" == "var" ]]; then
+        printf "Unclosed variable delimeter?\n%s\n" "$use"  >&2
+        return 3
+    fi
+    # generate output string maybe with shell quotes
+    local out
+    out="$(eval printf "%s\ " "${segs[@]}")"
+    if ((want)); then
+        out="$(printf "%s " "${segs[@]}")"
+    fi
+    # strip trailing whitespace
+    out="${out%${out##*[![:space:]]}}"
+    # write it
+    printf "%s\n" "$out"
+}
+
+
+spin() {
+    # usage
+    read -r -d '' use <<EOF
+spin [OPTIONS] [STRING]
+Animate rotation through each character in the given string.
+Given no arguments a builtin default will be selected randomly.
+
+OPTIONS
+ -c COLOR : Set text foreground color [0-255]
+ -s INT   : Float of miliseconds to sleep between characters.
+ -p INT   : PID of a process to wait on.
+ -h       : Print this helpful message.
+
+EXAMPLES
+ > spin "DEFAULT"
+ > spin -s 200 "SLOWER"
+ > spin -s 50 "FASTER"
+ > spin -c 5 "COLOR"
+ > printf "%s\n" {1..10} | spin "PIPE"
+ > sleep 5 & spin -p \$! "WAIT"
+EOF
+    # load spinner data
+    declare -a data
+    data=( "|-"
+           "_\|/_"
+           "/|\|"
+           "0)|("
+           "(|)0"
+           ".vV|Vv."
+           ".oOo."
+           ".+**+."
+           "<==>"
+           "_-~^~-_"
+           "->|<-"
+           "bdqp"
+           " ▁▂▃▄▅▆▇█"
+           "⠠⠐⠈⠁⠂⠄"
+           "⠈⠐⠠⠄⠂⠁"
+         )
+    # accept options
+    local tick="100" color=7 pid=""
+    local opt OPTIND OPTARG
+    while getopts ":abc:p:s:h" opt; do
+        case "$opt" in
+            c) # text color
+                color="$OPTARG"
+                if ! [[ "$color" =~ ^[0-9]+$ ]] || [[ "$color" -gt 255 ]]; then
+                    printf "%s\n\n%s\n" "-c color must be integer between 0 and 255!" "$use" >&2
+                    return 1
+                fi
+                ;;
+            h) # help?
+                printf "%s\n" "$use"
+                return
+                ;;
+            p) # pid to monitor
+                pid="$OPTARG"
+                # pid has to be an integer
+                if ! [[ "$pid" =~ ^[0-9]+$ ]]; then
+                    printf "%s\n\n%s\n" "-p PID be an integer!" "$use" >&2
+                    return 1
+                fi
+                # maybe already done
+                if ! ((pid)); then
+                    return 0
+                fi
+
+                ;;
+            s) # milisecond pause between characters
+                tick="$OPTARG"
+                if ! [[ "$tick" =~ ^[0-9]+$ ]] || [[ "$tick" -gt 1000 ]]; then
+                    printf "%s\n\n%s\n" "-s must be in integer milliseconds!" "$use" >&2
+                    return 1
+                fi
+                ;;
+            \?) # invalid option?
+                printf "Bad option: -%s\n\n%s\n" "$OPTARG" "$use" >&2
+                return 2
+        esac
+    done
+    shift $((OPTIND - 1))
+    # get sequence string argument from arguments or pick one at random
+    local seq="${*}"
+    if [[ -z "$seq" ]]; then seq="${data[(( RANDOM % ${#data[@]} ))]}"; fi
+    # maybe set terminal text modes
+    if type tput &>/dev/null; then
+        tput setaf "$color"
+        tput civis
+        trap "tput sgr0; tput cnorm" SIGTERM SIGINT RETURN
+    fi
+    # check for input pipe
+    local pipe=0
+    if ! [ -t 0 ]; then pipe=1; fi
+    # rotate through the spinner forever
+    local pos=0 cha=""
+    while :; do
+        # maybe read a line
+        if [ "$pipe" -eq 1 ] && ! read -r _; then break; fi
+        # maybe check a process
+        if [ -n "$pid" ] && ! kill -0 "$pid" &>/dev/null; then break; fi
+        # pause
+        sleep "$(printf "0.%03d\n" "$tick")"
+        # step to next character in the sequence
+        cha="${seq:pos++%${#seq}:1}"
+        # draw the character
+        printf "%s\b" "$cha"
+        # return to the start of the sequence
+        if [[ "$pos" -ge "${#seq}" ]]; then pos=0; fi
+    done
+    printf "%s\b\b" " "
+}
+
+###
+
+cz() {
+    # version
+    local ver="0.1"
+    # usage
+    local hows="" use=""
+    read -r -d '' use <<EOF
+cz [OPTIONS] < LINES
+Select a line from input with an appropriate tool.
+
+cz [OPTIONS] [PLUGIN] [ARGS ...]
+Run a plugin.
+
+OPTIONS
+ These options print some information and exit:
+  -h : help     : Print this help text.
+  -k : tools    : List supported line selection tools.
+  -l : plugins  : List detected plugins.
+  -v : version  : Print version string.
+
+ These options set program mode. Select a line then...
+  -p : print    : Print the line. This is the default mode.
+  -q : quote    : Print extracted FIELDS from the line.
+  -r : run      : Run the string formatted by TEMPLATE using the line.
+  -s : simulate : Print the string formatted by TEMPLATE using the line.
+
+ General options:
+  -e TEMPLATE  : Template to format selected line.
+  -d DELIMITER : Split selected line on given delimeter.
+  -f FIELDS    : Extract fields from selected line.
+  -i IN-FILE   : Read selections from file instead of stdin.
+  -x           : Use a graphical line selection program.
+  -y           : Use a text terminal line selection program.
+  -0           : Read null terminated lines from input.
+
+ENVIRONMENT
+ CZ_GUI         : preferred interface - 1=graphical 0=terminal
+ CZ_BINS_GUI    : list of graphical utilities in order of preference
+ CZ_BINS_TTY    : list of terminal utilities in order of preference
+ CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
+
+TEMPLATES
+ Substrings of TEMPLATE in the following formats are replaced with
+  one or more fields from a selected line split by DELIM.
+     {X}     - argument X
+     {X:}    - arguments X through end of arguments
+     {X:Y}   - arguments X through X + Y
+     {X,Y,Z} - arguments X, Y, and Z
+ FIELDS consists of one of the above without enclosing '{}'.
+EOF
+    # examples
+    read -r -d '' hows <<EOF
+ $ printf "%s\n" foo bar qux | cz
+ $ find . -name '*.yml' -print0 | cz -0
+ $ cz -f 0,5 -d : < /etc/passwd
+ $ cd \$(cz find dir)
+ $ cz \$(cz -l | cz)
+ $ cz -e 'dig {0} MX' host
+ $ cz xclip out | cz -e 'firefox {0}' uri
+ $ cz -e 'cz jq json {0}' locate *.json
+EOF
+    # determine appropriate type of executable
+    local gfx="${CZ_GUI:-1}"
+    if [ -z "$DISPLAY" ]; then gfx=0; fi
+    # figure available graphical executable
+    local gbins
+    read -r -a gbins <<< "${CZ_BINS_GUI:-dmenu rofi}"
+    for it in "${gbins[@]}"; do
+        if type "$it" &>/dev/null; then gbin="$it"; break; fi
+    done
+    # figure available terminal executable
+    local tbins
+    read -r -a tbins <<< "${CZ_BINS_TTY:-fzf pick pipedial sentaku iselect vis-menu}"
+    for it in "${tbins[@]}"; do
+        if type "$it" &>/dev/null; then tbin="$it"; break; fi
+    done
+    # accept options
+    local tpl="${CZ_TEMPLATE}" # string template
+    local fld="${CZ_FIELDS}"   # string field selection
+    local mode="${CZ_MODE}"    # integer program mode
+    local inp="/dev/stdin"     # string file from which to select a line
+    local run=""               # integer program mode implied by another option
+    local nul=0                # boolean reading null separated lines
+    local dlm="$IFS"           # string delimeter to split selected line
+    local opt OPTIND OPTARG
+    while getopts ":d:e:f:hi:lkpqrsvxy0" opt; do
+        case "$opt" in
+            d) # delimeter
+                dlm="$OPTARG"
+                ;;
+            e) # template to be executed
+                tpl="${tpl:-$OPTARG}"
+                run=2
+                ;;
+            f) # fields to be extracted
+                fld="${fld:-{${OPTARG}\}}"
+                run=1
+                ;;
+            h) # write some help text
+                printf "%s\n" "$use" >&2
+                return 0
+                ;;
+            i) # input file from which to read selections
+                inp="$OPTARG"
+                if ! [ -r "$inp" ]; then
+                    printf "%s\n" "Bad input file" >&2
+                    return 2
+                fi
+                ;;
+            l) # list available plugins
+                while read -r f; do
+                    if [[ "$f" == cz_* ]]; then
+                        printf "%s\n" "${f##cz_}"
+                    fi
+                done < <(compgen -c) | sort
+                return 0
+                ;;
+            k) # list supported executables
+                read -r -d '' exes <<EOF
+dmenu     https://tools.suckless.org/dmenu
+fzf       https://github.com/junegunn/fzf
+iselect   http://www.ossp.org/pkg/tool/iselect
+pick      https://github.com/mptre/pick
+pipedial  https://code.reversed.top/user/xaizek/pipedial
+rofi      https://github.com/davatorium/rofi
+sentaku   https://github.com/rcmdnk/sentaku
+slmenu    https://bitbucket.org/rafaelgg/slmenu
+vis-menu  https://github.com/martanne/vis
+EOF
+                printf "%s\n" "$exes"
+                return 0
+                ;;
+            p) # print selected line instead of running anything
+                mode=0
+                ;;
+            q) # print fields from extrated line provided by '-f' option
+                mode=1
+                ;;
+            r) # run template provided by by '-e' option
+                mode=2
+                ;;
+            s) # print template provided by by '-e' option
+                mode=3
+                ;;
+            0) # handle null separated input
+                nul=1
+                ;;
+            v) # write version
+                printf "cz %s\n" "$ver"
+                return 0
+                ;;
+            x) # try to use a graphical executable for line selection
+                gfx=1
+                ;;
+            y) # try to use a terminal executable for line selection
+                gfx=0
+                ;;
+            \?) # invalid option?
+                printf "Bad option: -%s\n%s\n" "$OPTARG" "$use" >&2
+                return 2
+                ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    # program mode might have been implied
+    mode="${mode:-$run}"
+    # plugins - any command in the format 'cz_$WORD'
+    if [ -n "$*" ]; then
+        # determine if a known plugin is given
+        local plug=""
+        local args=("$@")
+        local word=0
+        for ((word=${#args[@]}; word>0; word--)); do
+            plug="${args[*]:0:$word}"
+            plug="cz_${plug// /_}"
+            if type "$plug" >&/dev/null; then break; fi
+            plug=""
+        done
+        # bail out for invalid plugins
+        if [ -z "$plug" ]; then
+            printf "No plugin matching '%s'.\n" "$*" >&2
+            return 2
+        fi
+        shift "$word"
+        # run the plugin with override environment variables
+        CZ_FIELDS="$fld" CZ_GUI="$gfx" CZ_MODE="$mode" CZ_TEMPLATE="$tpl" \
+                 "$plug" "$@"
+        return $?
+    fi
+    # read selection file
+    declare -a lines
+    if ((nul)); then
+        mapfile -d '' -t lines
+    else
+        mapfile -t lines
+    fi < <(( cat "$inp" & spin -p "$!" &>/dev/tty ))
+    # require at least one non-empty line
+    if ! (("${#lines[@]}")); then
+        return 3
+    fi
+    # buffer stdin if reading selection input from another file
+    declare -a stdin
+    if [[ "$inp" != "/dev/stdin" ]] && ! [ -t 0 ]; then
+        mapfile -t stdin
+        # require some input bytes unless attached to /dev/null
+        if [ -z "${stdin[*]}" ] &&
+               type readlink &>/dev/null &&
+               [ "$(readlink -f /dev/stdin)" != "/dev/null" ]; then
+            return 3
+        fi
+    fi
+    # pick an appropriate line selection program
+    local app=""
+    if ((gfx)); then
+        app="$gbin"
+    else
+        app="$tbin"
+    fi
+    # choose a line using a known program
+    local out
+    out=$(case "$app" in
+              dmenu    )
+                  local color="${CZ_DMENU_COLOR:-white:black:black:white}"
+                  IFS=':' read -r nf nb sf sb <<< "$color"
+                  dmenu -i -l 30 -nf "$nf"  -nb "$nb" -sf "$sf"  -sb "$sb"
+                  ;;
+              fzf      ) fzf ;;
+              iselect  ) iselect -a ;;
+              pick     ) pick ;;
+              rofi     ) rofi -i -dmenu -p "" ;;
+              pipedial ) pipedial ;;
+              sentaku  ) sentaku -s $'\n' | head -n1 ;;
+              slmenu   ) slmenu -i -l 30 ;;
+              vis-menu ) vis-menu -i -l 30 ;;
+              *        ) chuz ;;
+          esac < <(if ((nul)); then printf "%q\n" "${lines[@]}"
+                   else printf "%s\n" "${lines[@]}"; fi)
+       )
+    # rectify shell quoted line
+    if ((nul)); then
+        out=$(eval printf "%s" "$out")
+    fi
+    # terminate if the line is empty
+    if [ -z "$out" ]; then
+        return 3
+    fi
+    # tokenize selected line for use in templates
+    local cmd=""
+    local toks=()
+    IFS="$dlm" read -r -a toks <<< "$out"
+    # set harmless defaults for template arguments
+    tpl="${tpl:-echo {0:\}}"
+    fld="${fld:-{0:\}}"
+    # do something with the selection depending on mode
+    case "${mode:-0}" in
+        0) # print selection
+            printf "%s\n" "$out"
+            ;;
+        1) # print some fields extracted from the line
+            if ! out="$(nth -p "${fld}" "${toks[@]}" 2>/dev/null)"; then
+                printf "Failed to parse template.\n%s\n" "$use" >&2
+                return 4
+            fi
+            printf "%s\n" "$out"
+            ;;
+        2) # execute templated string
+            if ! cmd="$(nth -q "${tpl}" "${toks[@]}" 2>/dev/null)"; then
+                printf "Failed to parse template.\n%s\n" "$use" >&2
+                return 4
+            fi
+            if [ -n "${stdin[*]}" ]; then
+                # input for filter commands
+                CZ_MODE="" CZ_FIELDS="" CZ_TEMPLATE="" CZ_GUI="$gfx" \
+                      eval "$cmd" < <(printf "%s\n" "${stdin[@]}")
+            else
+                # no input for commands that need an attached terminal
+                CZ_MODE="" CZ_FIELDS="" CZ_TEMPLATE="" CZ_GUI="$gfx" \
+                      eval "$cmd"
+            fi
+            return $?
+            ;;
+        3) # print templated string
+            if ! cmd="$(nth -p "${tpl}" "${toks[@]}" 2>/dev/null)"; then
+                printf "Failed to parse template.\n%s\n" "$use" >&2
+                return 4
+            fi
+            printf "%s\n" "$cmd"
+            ;;
+    esac
+}
+
+# cz command completion
+function _cz() {
+    # get current and previous word
+    local pre=""
+    if ((COMP_CWORD)); then pre="${COMP_WORDS[COMP_CWORD - 1]}"; fi
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    # maybe the previous word is an option that expects an argument
+    case "$pre" in
+        -d) COMPREPLY=(); return ;;
+        -e) COMPREPLY=($(compgen -c -- "$cur")); return ;;
+        -f) COMPREPLY=($(compgen -W "0 1 2 3 4 5 6 7 8 9" -- "$cur")); return ;;
+        -i) COMPREPLY=($(compgen -f -- "$cur")); return ;;
+    esac
+    # cz has some options
+    declare -A opts
+    for opt in -{d,e,f,h,i,l,k,p,q,r,s,v,x,y,0}; do opts["$opt"]=0; done
+    # cz has some plugins
+    declare -a exts
+    exts=($(cz -l))
+    # scan all previous words
+    local base=""
+    local last word
+    for ((i=1; i < COMP_CWORD; i++)); do
+        word="${COMP_WORDS[$i]}"
+        last="${COMP_WORDS[$i-1]}"
+        # have options ended?
+        if [[ "$last" =~ ^-[[:alnum:]]^ ]]; then
+            # record options already seen
+            unset opts["$word"]
+        elif [[ "$word" =~ ^[[:alnum:]]+ ]]; then
+            # check if options have ended
+            if [[ "$last" =~ ^-[defi]$ ]]; then continue; fi
+            opts=()
+            # concat command prefix
+            base="${base}_${word}"
+            base="${base##_}"
+       fi
+    done
+    # first complete initial command token and options
+    if [ -z "$base" ]; then
+        COMPREPLY=($(compgen -W "${!opts[*]} ${exts[*]%%_*}" -- "$cur"))
+        return
+    fi
+    # determine next command token
+    local next=()
+    local got=""
+    local pat="^${base}_([[:alnum:]]+)"
+    for ext in "${exts[@]}"; do
+        if [[ "$ext" =~ $pat ]]; then
+            next+=("${BASH_REMATCH[1]%%_*}" "${got}")
+        fi
+    done
+    # maybe complete next command token
+    if (("${#next[@]}")); then
+        COMPREPLY=($(compgen -W "${next[*]}" -- "$cur"))
+        return
+    fi
+    # maybe complete something specific for a plugin
+    case "$base" in
+        *) return ;;
+    esac
+}
+complete -F _cz cz
+
+####
+
+cz_anagram() {
+    req an || return 255
+    cz -i <(an -l "${2:-3}" "$1")
+}
+
+cz_ansibledoc() {
+    req ansible-doc || return 255
+    cz -f 0 -e "ansible-doc {0}" < <(ansible-doc -l)
+}
+
+cz_apparix() {
+    req apparix awk || return 255
+    cz -f 1 -e "cd {1}" -i <(apparix | awk '/^j/ { print $2, $3 }')
+}
+
+cz_apparix_file() {
+    local dir
+    dir="$(CZ_MODE="" CZ_FIELD="" cz -q apparix)"
+    if [ -z "$dir" ]; then return 2; fi
+    cz find file "$dir"
+}
+
+cz_apt_package() {
+    req apt-cache || return 255
+    local qry="${*:-.}"
+    cz -f 0 -e 'apt-cache show {0}' -i <(apt-cache search "$qry")
+}
+
+cz_avconv_format() {
+    req avconv sed || return 255
+    cz -f 1 -i <(avconv -loglevel 0 -formats | sed 1,4d)
+}
+
+cz_avconv_encoder() {
+    req avconv sed || return 255
+    cz -f 1 -i <(avconv -loglevel 0 -encoders | sed 1,10d)
+}
+
+cz_avconv_decoder() {
+    req avconv sed || return 255
+    cz -f 1 -i <(avconv -loglevel 0 -decoders | sed 1,10d)
+}
+
+cz_bash_bind_function() {
+    cz -i <(bind -l)
+}
+
+cz_bash_bind_command() {
+    cz -d : -f 1: -i <(bind -X)
+}
+
+cz_bash_bind_key() {
+    cz -d : -f 0 -i <({ bind -p; bind -X; bind -s; } | grep -v '^#')
+}
+
+cz_bash_completion() {
+    cz -i <(complete -p)
+}
+
+cz_bash_help() {
+    mapfile -t m < <(help -s '*')
+    cz -f 0 -e 'help {0}' -d : -i <(printf "%s\n" "${m[@]:2}")
+}
+
+cz_bash_job() {
+    cz -f 1 -i <(jobs -l)
+}
+
+cz_bash_history() {
+    req sort || return 255
+    cz -f 3: -e "eval {3:}" -i <(HISTTIMEFORMAT="%F %T " history | sort -r -n)
+}
+
+declare n=""
+while read -r n _; do
+    eval "cz_$n() { cz -i <(compgen -A $n); }"
+done <<EOF
+alias
+arrayvar
+binding
+builtin
+directory
+disabled
+enabled
+export
+file
+function
+group
+helptopic
+job
+keyword
+running
+service
+setopt
+shopt
+signal
+stopped
+user
+variable
+EOF
+unset n
+
+cz_command() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:dark green:white:black}"
+    cz -f 0 -e '{0:}' -i <(compgen -A command)
+}
+
+cz_dict_strategy() {
+    req dict sed || return 255
+    cz -f 0 -i <(dict -S | sed 1d)
+}
+
+cz_dict_word() {
+    req dict || return 255
+    local qry="${1:-.*}"
+    cz -f 3: -e 'dict {3:}' -i <(dict -m -f -s re "$qry" )
+}
+
+cz_docker_container() {
+    req docker sed || return 255
+    cz -f 0 -e 'docker inspect {0}' \
+       -i <(docker container ls -a | sed 1d)
+}
+
+cz_docker_image() {
+    req docker sed || return 255
+    cz -f 2 -e 'docker inspect {2}' \
+       -i <(docker images -a | sed 1d)
+}
+
+cz_docker_ps() {
+    req docker sed || return 255
+    cz -f 0 -e 'docker inspect {0}' \
+       -i <(docker ps | sed 1d)
+}
+
+cz_fc_font() {
+    req fc-list || return 255
+    cz -f 0 -d : -i <(fc-list)
+}
+
+cz_figlet_font() {
+    req figlet || return 255
+    local fdir="${FIGLET_FONTDIR:-/usr/share/figlet}"
+    cz -f 0 -e "figlet -t -d $fdir -f {0}" \
+           -i <(for f in "$fdir"/*f; do
+                    printf "%s %s\n" "${f##*/}" "${f}"
+                done)
+}
+
+cz_find_file() {
+    req find || return 255
+    cz -0 -i <(find "${1:-.}" -iwholename "${2:-*}" -type f -print0)
+}
+
+cz_find_dir() {
+    req find || return 255
+    cz -0 -i <(find "${1:-.}" -iwholename "${2:-*}" -type d -print0)
+}
+
+cz_gcloud_auth() {
+    req gcloud jq || return 255
+    cz -f 0 -i <(gcloud auth list --format=json | jq -r '.[] | [.account, .status] | @tsv')
+}
+
+cz_gcloud_bucket() {
+    req gsutil || return 255
+    cz -i <(gsutil ls)
+}
+
+cz_gcloud_bucket_file() {
+    req gsutil || return 255
+    local b; b="$(cz gcloud bucket)"
+    if [ -z "$b" ]; then return 2; fi
+    cz -f 2 -i <(gsutil ls -lr "$b"'**' | sed '$d')
+}
+
+cz_gcloud_bq_dataset() {
+    req bq jq || return 255
+    local proj="${1:-$(CZ_FIELDS="" cz -q gcloud project)}"
+    cz -f 0 -i <(bq --format=json --project_id "$proj" ls | \
+                     jq -r '.[] | [.id, (.datasetReference | (.datasetId, .projectId)), .location] | @tsv')
+}
+
+cz_gcloud_bq_table() {
+    req bq jq || return 255
+    local proj="$1" data="$2"
+    if [ -z "$proj" ] || [ -z "$data" ]; then
+        read -r data proj < <(cz -f 1,2 -q gcloud bq dataset)
+    fi
+    cz -f 0 -i <(bq --format=json --project_id "$proj" ls "$data" | \
+                     jq -r '.[] | [.id, (.tableReference | (.tableId, .datasetId, .projectId)), .type] | @tsv')
+}
+
+cz_gcloud_compute_instance() {
+    req gcloud jq || return 255
+    local proj="${1:-$(cz -q gcloud project)}"
+    if [ -z "$proj" ]; then return 2; fi
+    cz -f 1 -e "gcloud --project='$proj' --format=json compute instances describe --zone {2} {1}" \
+       -i <(gcloud --project="$proj" --format=json compute instances list \
+                | jq -r '.[] | [.id, .name, (.zone | split("/")[-1]), .networkInterfaces[0].networkIP // "-", .accessConfigs[0].natIP // "-", .status] | @tsv')
+}
+
+cz_gcloud_dns_record() {
+    req gcloud jq || return 255
+    local proj="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud project)}"
+    local zone="${2:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud dns zone)}"
+    if [ -z "$proj" ] || [ -z "$zone" ]; then return 2; fi
+    cz -f 0,1 \
+       -i <(gcloud --project="$proj" --format=json dns record-sets list -z "$zone" | \
+                jq -r '.[] | [.type, .name, .ttl, .rrdatas[]] | @tsv')
+}
+
+cz_gcloud_dns_zone() {
+    req gcloud jq || return 255
+    local proj="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud project)}"
+    if [ -z "$proj" ]; then return 2; fi
+    cz -f 0 -e "gcloud --project='$proj' --format=json dns managed-zones describe {0}" \
+       -i <(gcloud --project="$proj" --format=json dns managed-zones list | \
+                jq -r '.[] | [.name, .dnsName, .visibility, .description] | @tsv')
+}
+
+cz_gcloud_project() {
+    req gcloud jq || return 255
+    cz -f 0 -e 'gcloud --format=json projects describe {0}' \
+       -i <(gcloud --format=json projects list | jq -r '.[] | [.projectId, .name] | @tsv')
+}
+
+cz_gcloud_role() {
+    req gcloud jq || return 255
+    local proj="${1:-$(cz -q gcloud project)}"
+    if [ -z "$proj" ]; then return 2; fi
+    cz -f 0 -e "gcloud --project='$proj' --format=json iam roles describe {0}" \
+       -i <(gcloud --project="$proj" --format=json iam roles list | jq -r '.[] | [.name, .description] | @tsv')
+}
+
+cz_gcloud_serviceaccount() {
+    req gcloud jq || return 255
+    local proj="${1:-$(cz -q gcloud project)}"
+    if [ -z "$proj" ]; then return 2; fi
+    cz -f 0 -e "gcloud --project='$proj' --format=json iam service-accounts describe {0}" \
+       -i <(gcloud --project="$proj" --format=json iam service-accounts list | jq -r '.[] | [.email, .displayName, .email] | @tsv')
+}
+
+cz_git() {
+    cz git status
+}
+
+cz_git_status() {
+    req git grep || return 255
+    local repo="${1:-.}"
+    cz -f 1 -e 'git diff {1}' -i <(git -C "$repo" status -sbu | grep -v ^#)
+}
+
+cz_git_branch() {
+    req git sed || return 255
+    local repo="${1:-.}"
+    cz -f 0 -i <(git -C "$repo" branch -vv | sed 's/^[* ] //')
+}
+
+cz_git_commit() {
+    req git || return 255
+    local repo="${1:-.}"
+    cz -f 0 -e "git -C $repo show {0}" \
+           -i <(git -C "$repo" log --pretty=format:'%h %cI %s (%ce)' --abbrev-commit)
+}
+
+cz_git_file() {
+    req git grep || return 255
+    local repo="${1:-.}"
+    cz -f 4: -i <(git -C "$repo" ls-tree -rl HEAD)
+}
+
+cz_git_remote() {
+    req git || return 255
+    local repo="${1:-.}"
+    cz -f 0 -i <(git -C "$repo" remote -v)
+}
+
+cz_git_tag() {
+    req git || return 255
+    local repo="${1:-.}"
+    cz -f 0 -i <(git -C "$repo" tag)
+}
+
+cz_grep() {
+    req grep || return 255
+    cz -d : -f 0:1 -i <(grep -rn "$@" .)
+}
+
+cz_hg_branch() {
+    req hg || return 255
+    cz -f 0 -i <(hg -R "${1:-.}" branches)
+}
+
+cz_hg_revision() {
+    req hg || return 255
+    cz -f 0 -i <(hg log -T '{rev} {branch} {user} {date} {desc|firstline}\n' "${1:-.}")
+}
+
+cz_hg_status() {
+    req hg || return 255
+    cz -f 1 -i <(hg -R "${1:-.}" status)
+}
+
+cz_info() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:blue:black:green}"
+    req info || return 255
+    cz -e 'info {0}' -i <(info -k .)
+}
+
+cz_ip_addr4() {
+    req ip || return 255
+    cz -f 2 -i <(ip -br -4 addr)
+}
+
+cz_ip_addr6() {
+    req ip || return 255
+    cz -f 2 -i <(ip -br -6 addr)
+}
+
+cz_ip_route4() {
+    req ip || return 255
+    cz -f 0 -i <(ip -4 route)
+}
+
+cz_ip_route6() {
+    req ip || return 255
+    cz -f 0 -i <(ip -6 route)
+}
+
+cz_ispell() {
+    req ispell || return 255
+    # parse ispell spellcheck output
+    mapfile -t lines
+    local line="" index=0 fix=""
+    while read -r symbol rest; do
+        line="${lines[$index]}"
+        case "$symbol" in
+            '') # next
+                let index++
+                continue
+                ;;
+            '?') # guess
+                : ;;
+            '&') # miss
+                read -r bad _ _ sug   <<< "$rest"
+                IFS=', ' read -r -a fixes <<< "$sug"
+                fix=$(printf "%s\n" "$bad" "${fixes[@]}" | cz)
+                if [ -n "$fix" ]; then
+                    lines["$index"]="${line/$bad/$fix}"
+                fi
+                ;;
+            '#') # no guess
+                continue
+                ;;
+            '*') # okay
+                continue
+                ;;
+            '+') # root
+                continue
+                ;;
+        esac
+    done < <(printf "%s\n" "${lines[@]}" | ispell -a)
+    printf "%s\n" "${lines[@]}"
+}
+
+cz_jq_json() {
+    req jq || return 255
+    if ! [ -f "$1" ]; then return 2; fi
+    cz -e "jq -r {0} $1" -i <(jq -r '"." + (path(..) | map("[\(tojson)]") | join(""))' "$1")
+}
+
+cz_jq_yaml() {
+    req jq python3 || return 255
+    local f="$1"
+    if ! [ -f "$f" ]; then return 2; fi
+    local t="/tmp/${f##*/}.json"
+    python3 -c 'import sys,json,yaml; print(" ".join([json.dumps(x) for x in yaml.load_all(sys.stdin, Loader=yaml.SafeLoader)]))' < "$f" > "$t"
+    cz jq json "$t"
+}
+
+cz_kill() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:red:green:black}"
+    local pid
+    if ! pid=$(cz process); then return 2; fi
+    cz -e "kill -s {0} $pid" signal
+}
+
+cz_lastpass() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:purple:red:black}"
+    req lpass || return 255
+    local menu=()
+    local pat='^(.*[^/]) \[id: ([[:digit:]]+)\]$'
+    while read -r item; do
+        if [[ "$item" =~ $pat ]]; then
+            menu+=("${BASH_REMATCH[2]} ${BASH_REMATCH[1]}")
+        fi
+    done < <(lpass ls)
+    cz -e "lpass show --password {0}" < <(printf "%s\n" "${menu[@]}")
+}
+
+cz_lineno() {
+    req grep || return 255
+    cz -d : -f 0 < <(grep -n .)
+}
+
+cz_locate() {
+    req locate || return 255
+    cz -0 -i <(locate -i -0 "${@:-$PWD}")
+}
+
+cz_locate_mimetype() {
+    req locate || return 255
+    local e=($(cz -q -f 1: mimetype))
+    if ! ((${#e})); then return 2; fi
+    cz locate "${e[@]/#/*.}"
+}
+
+cz_locate_regex() {
+    req locate || return 255
+    cz -0 -i <(locate -i -0 -r "${@:-.}")
+}
+
+cz_man() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:white:yellow:black}"
+    req man sed || return 255
+    cz -f 0 -e 'man {0}' -i <(man -k . | sed 's/ (/./;s/)//')
+}
+
+cz_meta() {
+    cz -f 0 -e "cz {0}" -i <(cz -l)
+}
+
+cz_mimetype() {
+    req grep /etc/mime.types || return 255
+    cz -f 0 -i <(grep -v -e '^#' -e '^$' /etc/mime.types)
+}
+
+declare t="" f=""
+for t in artist album genre composer; do
+    read -r -d '' f <<EOF
+cz_mpd_$t() {
+    req mpc || return 255
+    cz -e 'mpc search $t "{0:}"' -i <(mpc list $t)
+}
+EOF
+    eval "$f"
+done
+unset t f
+
+cz_mpd_output() {
+    req mpc || return 255
+    cz -e "mpc enable {1}" -i <(mpc outputs)
+}
+
+cz_mpd_search() {
+    req mpc || return 255
+    local kind="${1:-$(CZ_MODE="" cz -p value artist album genre composer)}"
+    if [ -z "$kind" ]; then return 2; fi
+    cz -i <(CZ_MODE="" CZ_TEMPLATE="" cz -r mpd "$kind")
+}
+
+cz_mpd_track() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:blue:blue:white}"
+    req mpc || return 255
+    cz -f 0 -e "mpc play {0}" \
+           -i <(mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
+}
+
+cz_nss_group() {
+    req getent || return 255
+    cz -f 0 -d : -i <(getent group)
+}
+
+cz_nss_host() {
+    req getent || return 255
+    cz -f 0 -i <(getent hosts)
+}
+
+cz_nss_network() {
+    req getent || return 255
+    cz -f 0 -i <(getent networks)
+}
+
+cz_nss_passwd() {
+    req getent || return 255
+    cz -f 0 -e '{0}' -d : -i <(getent passwd)
+}
+
+cz_nss_protocol() {
+    req getent || return 255
+    cz -f 1 -i <(getent protocols)
+}
+
+cz_nss_service() {
+    req getent || return 255
+    cz -f 1 -i <(getent services)
+}
+
+cz_pass() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:purple:black:red}"
+    req pass find sed || return 255
+    local pdir="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+    cz -f 0 -e 'pass show {0}' \
+           -i <(find "$pdir" -type f -name '*.gpg' | sed "s#\.gpg##; s#$pdir##")
+}
+
+cz_pci() {
+    req lspci || return 255
+    cz -f 0 -i <(lspci)
+}
+
+cz_perldoc() {
+    req perldoc perldoc-search || return 255
+    cz -f 0 -e "perldoc {0}" < <(perldoc-search .)
+}
+
+cz_process() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:blue:black:orange}"
+    req ps || return 255
+    local cols index table
+    mapfile table < <(ps ux)
+    read -r -a cols <<< "${table[0]}"
+    for ((index=1; index <= "${#cols[@]}"; index++)) ; do
+        if [[ "${cols[$index]}" =~ ^(pid|PID)$ ]]; then break; fi
+    done
+    cz -f "$index" <<< "${table[@]:1}"
+}
+
+cz_pydoc() {
+    req pydoc || return 255
+    cz -f 0 -e "pydoc {0}" < <(pydoc -k .)
+}
+
+cz_pulseaudio_sink() {
+    req pactl || return 255
+    cz -f 0 -e 'pactl set-sink-mute {0} toggle' -i <(pactl list short sinks)
+}
+
+cz_pulseaudio_sink_volume() {
+    req pactl || return 255
+    local sink
+    if ! sink=$(cz -p pulseaudio sink); then return 2; fi
+    cz -f 0 -e "pactl set-sink-volume $sink {0}" -i <(printf "%s%%\n" {100..0..5})
+}
+
+cz_pulseaudio_source() {
+    req pactl || return 255
+    cz -f 0 -e 'pactl set-source-mute {0} toggle' -i <(pactl list short sources)
+}
+
+cz_screen_session() {
+    req screen || return 255
+    cz -f 0 -e 'screen -rd {0}' -i <(screen -ls | grep pts)
+}
+
+cz_signal() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:blue:black:red}"
+    local name line signals
+    declare -a signals
+    for x in {1..64}; do
+        name=$(kill -l "$x")
+        if [ -z "$name" ]; then continue; fi
+        line=$(printf "%02d %s\n" "$x" "$name")
+        signals+=("$line")
+    done
+    cz -f 0 < <(printf "%s\n" "${signals[@]}")
+}
+
+cz_ssh_host() {
+    req ssh sed || return 255
+    cz -f 0 -e 'ssh {0}' -i <(sed -E -n 's/^\s*Host\s+(.*)\s*/\1/ip' < "$HOME/.ssh/config")
+}
+
+cz_ssh_key() {
+    req ssh-add || return 255
+    cz -f 2 -i < <(ssh-add -l)
+}
+
+cz_surfraw() {
+    req surfraw || return 255
+    cz -f 0 -e "surfraw {0} \"$1\"" < <(surfraw -elvi | sed 1d)
+}
+
+cz_sysctl() {
+    req sysctl || return 255
+    cz -f 0 -i <(sysctl -a 2>/dev/null)
+}
+
+cz_systemd_unit() {
+    req systemctl || return 255
+    cz -f 0 -e 'systemctl status {0}' -i <(systemctl list-units -l --plain --no-legend)
+}
+
+cz_systemd_service() {
+    req systemctl || return 255
+    cz -f 0 -e 'systemctl status {0}' -i <(systemctl list-units -l --type=service --plain --no-legend)
+}
+
+cz_systemd_socket() {
+    req systemctl || return 255
+    cz -f 0 -e 'systemctl status {0}' -i <(systemctl list-units -l --type=socket --plain --no-legend)
+}
+
+cz_systemd_timer() {
+    req systemctl || return 255
+    cz -f 0 -e 'systemctl status {0}' -i <(systemctl list-units -l --type=timer --plain --no-legend)
+}
+
+cz_timezone() {
+    local p="/usr/share/zoneinfo/posix"
+    if req date timedatectl 2>/dev/null; then
+        cz -f 0 -e 'TZ={0} date' \
+           -i <(timedatectl list-timezones)
+    elif req date "$p" sort 2>/dev/null; then
+        cz -f 0 -e 'TZ={0} date' \
+           -i <(for x in "$p"/*/*; do printf "%s\n" "${x##$p/}"; done | sort)
+    else
+        req systemd "$p"
+    fi
+}
+
+cz_tmux_command() {
+    req tmux || return 255
+    cz -f 0 -i <(tmux list-commands)
+}
+
+cz_tmux_pane() {
+    req tmux || return 255
+    cz -d : -f 0 -e 'tmux select-pane -t {0}' -i <(tmux list-panes)
+}
+
+cz_tmux_session() {
+    req tmux || return 255
+    cz -d : -f 0 -e 'tmux attach-session -t {0}' -i <(tmux list-sessions)
+}
+
+cz_tmux_window() {
+    req tmux || return 255
+    cz -d : -f 0 -e 'tmux select-window -t {0}' -i <(tmux list-windows)
+}
+
+cz_unicode() {
+    cz unicode character
+}
+
+cz_unicode_character() {
+    req perl || return 255
+    local block="${1:-$(cz unicode block)}"
+    if [ -z "$block" ]; then return 2; fi
+    cz -f 0 -d : \
+       -i <(perl -MUnicode::UCD=charinfo,charblock -E 'use open ":std", ":encoding(UTF-8)";' \
+                 -E 'my ($s, $e) = @{charblock(shift)->[0]}; say join ":", chr hex $_->{code}, $k, $_->{name} for map { charinfo($_) } ($s .. $e)' "$block")
+}
+
+cz_unicode_block() {
+    req perl || return 255
+    cz -f 0: -i <(perl -MUnicode::UCD=charblocks -E 'say for sort keys %{charblocks()}')
+}
+
+cz_uri() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:black:black:green}"
+    if type urifind &>/dev/null; then
+        cz -e 'sensible-browser {0}' < <(urifind -su)
+    elif type xurls &>/dev/null; then
+        cz -e 'sensible-browser {0}' < <(xurls -r)
+    else
+        req xurls urifind || return 255
+    fi
+}
+
+cz_usb() {
+    req lsusb || return 255
+    cz -e 'lsusb -v -d {}' -f 5 -i <(lsusb)
+}
+
+cz_value() {
+    cz -i <(sleep "$#"; printf "%s\n" "$@")
+}
+
+cz_word() {
+    req grep sort || return 255
+    cz < <(grep -Eo '([[:alnum:]])+' | sort -u)
+}
+
+cz_x11_rgb() {
+    req /etc/X11/rgb.txt grep || return 255
+    cz -f 0:3 -i <(grep -v '^!' /etc/X11/rgb.txt)
+}
+
+cz_x11_window() {
+    req sort xwininfo || return 255
+    local menu=()
+    while IFS= read -r l; do
+        if [[ "$l" =~ ^[[:space:]]+?(0x[[:alnum:]]+)[[:space:]](.*) ]]; then
+            menu+=("${BASH_REMATCH[1]} ${BASH_REMATCH[2]}")
+        fi
+    done < <(xwininfo -children -root)
+    cz -f 0 -i <(printf "%s\n" "${menu[@]}" | sort)
+}
+
+xclip_brief() {
+    local mod buf lns
+    for mod in clipboard primary secondary; do
+        buf=$(xclip -o -selection "$mod" 2>/dev/null)
+        mapfile lns <<< "$buf"
+        printf "%s %s %s\n" "$mod" "${#buf}" "${#lns[@]}"
+    done
+}
+
+cz_xclip_in() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:dark gray:black:red}"
+    req xclip || return 255
+    cz -e 'xclip -selection {0} -i' -i <(xclip_brief)
+}
+
+cz_xclip_out() {
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:dark gray:black:green}"
+    req xclip || return 255
+    cz -e 'xclip -selection {0} -o' -i <(xclip_brief)
+}
+
+cz_xml_element() {
+    req xmlstarlet || return 255
+    if ! [ -f "$1" ]; then return 1; fi
+    cz -f 0 -e "xmlstarlet sel -B -t -c {0} $1" < <(xmlstarlet el -v "$1")
+}
+
+cz_xml_value() {
+    req xmlstarlet || return 255
+    if ! [ -f "$1" ]; then return 1; fi
+    cz -f 0 -e "xmlstarlet sel -B -t -v {0} $1" < <(xmlstarlet el -v "$1")
+}
+
+cz_xrandr_monitor() {
+    req xrandr sed || return 255
+    cz -f 0 -i <(xrandr --listmonitors | sed '1d')
+}
+
+cz_xrandr_provider() {
+    req xrandr sed || return 255
+    cz -f 0 -i <(xrandr --listproviders | sed '1d')
+}
+
+###
+
+# run it unless sourced
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then cz "$@"; fi
