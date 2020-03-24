@@ -1,31 +1,43 @@
-choose [OPTIONS] < LINES - choose a line using an appropriate tool
-     --OR--
-choose [OPTIONS] [PLUGIN] [ARGS] - run a plugin that uses choose!
+USAGE
+ cz [OPTIONS] < LINES
+ Select a line from input with an appropriate tool.
+
+ cz [OPTIONS] [PLUGIN] [ARGS ...]
+ Run a plugin.
 
 OPTIONS
- -h         : Help
- -l         : List plugins
- -e COMMAND : Run given command replacing {} with selection
- -p         : Print selection instead of executing a command
- -f FIELD   : Extract field at given index from selection
- -g         : Force graphical mode
- -t         : Force terminal mode
- -0         : Read null terminated lines
+ These options print some information and exit:
+  -h : help     : Print this help text.
+  -k : tools    : List supported line selection tools.
+  -l : plugins  : List detected plugins.
+  -v : version  : Print version string.
+
+ These options set program mode. Select a line then...
+  -p : print    : Print the line. This is the default mode.
+  -q : quote    : Print extracted FIELDS from the line.
+  -r : run      : Run the string formatted by TEMPLATE using the line.
+  -s : simulate : Print the string formatted by TEMPLATE using the line.
+
+ General options:
+  -e TEMPLATE  : Template to format selected line.
+  -d DELIMITER : Split selected line on given delimeter.
+  -f FIELDS    : Extract fields from selected line.
+  -i IN-FILE   : Read selections from file instead of stdin.
+  -x           : Use a graphical line selection program.
+  -y           : Use a text terminal line selection program.
+  -0           : Read null terminated lines from input.
 
 ENVIRONMENT
- CHOOSE_GUI         : preferred interface - 1=graphical 0=terminal
- CHOOSE_BINS_GUI    : list of graphical utilities in order of preference
- CHOOSE_BINS_TTY    : list of terminal utilities in order of preference
- CHOOSE_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
+ CZ_GUI         : preferred interface - 1=graphical 0=terminal
+ CZ_BINS_GUI    : list of graphical utilities in order of preference
+ CZ_BINS_TTY    : list of terminal utilities in order of preference
+ CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
 
-EXAMPLES
- $ printf "%s\n" foo bar qux | choose
- $ cd $(choose dir)
- $ emacs -nw $(choose file)
- $ choose -e ssh host
- $ choose $(choose -l | choose)
-
-All commands starting with 'choose_' are considered plugins.
-
-Supported line selection tools:
- dmenu fzf iselect pick rofi pipedial sentaku slmenu vis-menu
+TEMPLATES
+ Substrings of TEMPLATE in the following formats are replaced with
+  one or more fields from a selected line split by DELIM.
+     {X}     - argument X
+     {X:}    - arguments X through end of arguments
+     {X:Y}   - arguments X through X + Y
+     {X,Y,Z} - arguments X, Y, and Z
+ FIELDS consists of one of the above without enclosing '{}'.
