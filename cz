@@ -91,7 +91,7 @@ rleval() {
 rleval COMMAND...
 Evaluate given command and insert output into the bash readline buffer.
 This function is intended to be used with 'bind -x'.
-See READLINE_LINE in the bash manual page.
+See READLINE_LINE in the bash man page.
 EOF
     if ! (($#)); then
         printf "%s\n" "$use" >&2
@@ -241,119 +241,6 @@ EOF
     out="${out%${out##*[![:space:]]}}"
     # write it
     printf "%s\n" "$out"
-}
-
-
-spin() {
-    # usage
-    read -r -d '' use <<EOF
-spin [OPTIONS] [STRING]
-Animate rotation through each character in the given string.
-Given no arguments a builtin default will be selected randomly.
-
-OPTIONS
- -c COLOR : Set text foreground color [0-255]
- -s INT   : Float of miliseconds to sleep between characters.
- -p INT   : PID of a process to wait on.
- -h       : Print this helpful message.
-
-EXAMPLES
- > spin "DEFAULT"
- > spin -s 200 "SLOWER"
- > spin -s 50 "FASTER"
- > spin -c 5 "COLOR"
- > printf "%s\n" {1..10} | spin "PIPE"
- > sleep 5 & spin -p \$! "WAIT"
-EOF
-    # load spinner data
-    declare -a data
-    data=( "|-"
-           "_\|/_"
-           "/|\|"
-           "0)|("
-           "(|)0"
-           ".vV|Vv."
-           ".oOo."
-           ".+**+."
-           "<==>"
-           "_-~^~-_"
-           "->|<-"
-           "bdqp"
-           " ▁▂▃▄▅▆▇█"
-           "⠠⠐⠈⠁⠂⠄"
-           "⠈⠐⠠⠄⠂⠁"
-         )
-    # accept options
-    local tick="100" color=7 pid=""
-    local opt OPTIND OPTARG
-    while getopts ":abc:p:s:h" opt; do
-        case "$opt" in
-            c) # text color
-                color="$OPTARG"
-                if ! [[ "$color" =~ ^[0-9]+$ ]] || [[ "$color" -gt 255 ]]; then
-                    printf "%s\n\n%s\n" "-c color must be integer between 0 and 255!" "$use" >&2
-                    return 1
-                fi
-                ;;
-            h) # help?
-                printf "%s\n" "$use"
-                return
-                ;;
-            p) # pid to monitor
-                pid="$OPTARG"
-                # pid has to be an integer
-                if ! [[ "$pid" =~ ^[0-9]+$ ]]; then
-                    printf "%s\n\n%s\n" "-p PID be an integer!" "$use" >&2
-                    return 1
-                fi
-                # maybe already done
-                if ! ((pid)); then
-                    return 0
-                fi
-
-                ;;
-            s) # milisecond pause between characters
-                tick="$OPTARG"
-                if ! [[ "$tick" =~ ^[0-9]+$ ]] || [[ "$tick" -gt 1000 ]]; then
-                    printf "%s\n\n%s\n" "-s must be in integer milliseconds!" "$use" >&2
-                    return 1
-                fi
-                ;;
-            \?) # invalid option?
-                printf "Bad option: -%s\n\n%s\n" "$OPTARG" "$use" >&2
-                return 2
-        esac
-    done
-    shift $((OPTIND - 1))
-    # get sequence string argument from arguments or pick one at random
-    local seq="${*}"
-    if [[ -z "$seq" ]]; then seq="${data[(( RANDOM % ${#data[@]} ))]}"; fi
-    # maybe set terminal text modes
-    if type tput &>/dev/null; then
-        tput setaf "$color"
-        tput civis
-        trap "tput sgr0; tput cnorm" SIGTERM SIGINT RETURN
-    fi
-    # check for input pipe
-    local pipe=0
-    if ! [ -t 0 ]; then pipe=1; fi
-    # rotate through the spinner forever
-    local pos=0 cha=""
-    while :; do
-        # maybe read a line
-        if [ "$pipe" -eq 1 ] && ! read -r _; then break; fi
-        # maybe check a process
-        if [ -n "$pid" ] && ! kill -0 "$pid" &>/dev/null; then break; fi
-        # pause
-        sleep "$(printf "0.%03d\n" "$tick")"
-        # step to next character in the sequence
-        cha="${seq:pos++%${#seq}:1}"
-        # draw the character
-        printf "%s\b" "$cha"
-        # return to the start of the sequence
-        if [[ "$pos" -ge "${#seq}" ]]; then pos=0; fi
-    done
-    printf "%s\b\b" " "
 }
 
 ###
@@ -549,10 +436,10 @@ EOF
     # read selection file
     declare -a lines
     if ((nul)); then
-        mapfile -d '' -t lines
+        mapfile -d '' -t lines < "$inp"
     else
-        mapfile -t lines
-    fi < <(( cat "$inp" & spin -p "$!" &>/dev/tty ))
+        mapfile -t lines < "$inp"
+    fi
     # require at least one non-empty line
     if ! (("${#lines[@]}")); then
         return 3
@@ -565,7 +452,7 @@ EOF
         if [ -z "${stdin[*]}" ] &&
                type readlink &>/dev/null &&
                [ "$(readlink -f /dev/stdin)" != "/dev/null" ]; then
-            return 3
+            return 4
         fi
     fi
     # pick an appropriate line selection program
@@ -900,12 +787,21 @@ cz_gcloud_bq_dataset() {
 
 cz_gcloud_bq_table() {
     req bq jq || return 255
-    local proj="$1" data="$2"
-    if [ -z "$proj" ] || [ -z "$data" ]; then
+    local proj="$1"
+    local dat="$2"
+    if [ -z "$proj" ] || [ -z "$dat" ]; then
         read -r data proj < <(cz -f 1,2 -q gcloud bq dataset)
     fi
-    cz -f 0 -i <(bq --format=json --project_id "$proj" ls "$data" | \
+    cz -f 0 -i <(bq --format=json --project_id "$proj" ls "$dat" | \
                      jq -r '.[] | [.id, (.tableReference | (.tableId, .datasetId, .projectId)), .type] | @tsv')
+}
+
+cz_gcloud_compute_image() {
+    req gcloud jq || return 255
+    local proj="${1:-$(cz -q gcloud project)}"
+    if [ -z "$proj" ]; then return 2; fi
+    cz -f 1 -e "gcloud --project='$proj' --format=json compute --format=json describe {0} " \
+       -i <(gcloud --project="$proj" --format=json compute images list | jq -r '.[] | [.name, .creationTimestamp ] | @tsv')
 }
 
 cz_gcloud_compute_instance() {
