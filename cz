@@ -13,6 +13,37 @@ if (("${BASH_VERSINFO[0]}" < 4)); then
     return 255
 fi
 
+acc() {
+    # usage
+    read -r -d '' use <<EOF
+acc [FILE] < INPUT > PATH
+Given input file or pipe generate path of usable file.
+EOF
+    # accept options
+    local opt OPTIND OPTARG
+    while getopts ":h" opt; do
+        case "$opt" in
+            *) printf "%s\n" "$use" >&2
+               return 1
+               ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    # accept arguments
+    local file="${1:-/dev/stdin}"
+    local out="$file"
+    if ! [ -r "$file" ]; then
+        return 1
+    fi
+    # capture pipe in a temporary file
+    if [ "$file" == "/dev/stdin" ]; then
+        out=$(printf "/tmp/acc.%s.%(%s)T\n" "$RANDOM" "-1")
+        printf "%s\n" "$(< "$file")" > "$out"
+    fi
+    # write out the file name
+    printf "%s\n" "$out"
+};
+
 chuz() {
     # usage
     read -r -d '' use <<EOF
@@ -90,8 +121,9 @@ rleval() {
     read -r -d '' use <<EOF
 rleval COMMAND...
 Evaluate given command and insert output into the bash readline buffer.
+See READLINE_LINE and READLINE_POINT in the bash man page.
 This function is intended to be used with 'bind -x'.
-See READLINE_LINE in the bash man page.
+For example: bind -x '"\C-xn":"rleval fortune"'
 EOF
     if ! (($#)); then
         printf "%s\n" "$use" >&2
@@ -99,7 +131,7 @@ EOF
     fi
     local a="${READLINE_LINE:0:$READLINE_POINT}"
     local b="${READLINE_LINE:$READLINE_POINT}"
-    local s; s=$(eval "$@")
+    local s; s=$(eval -- "$@")
     READLINE_LINE="${a}${s}${b}"
     ((READLINE_POINT += ${#s}))
 }
@@ -191,20 +223,20 @@ EOF
                     len="${BASH_REMATCH[3]:-${BASH_REMATCH[2]}}"
                     if [ -z "$len" ]; then
                         # N - one specific field
-                        segs+=("$(printf "%q" "${str}${toks[$sel]}")")
+                        segs+=("$(printf "%s" "${str}${toks[$sel]}")")
                     elif [ "$len" == ":" ]; then
                         # N: - a slice of fields
-                        segs+=("$(printf "%s%q" "$str" "${toks[@]:${sel}:1}")")
+                        segs+=("$(printf "%s%s" "$str" "${toks[@]:${sel}:1}")")
                         while read -r l; do
                             if [ -z "$l" ]; then continue; fi
-                            segs+=("$(printf "%q" "$l")")
+                            segs+=("$(printf "%s" "$l")")
                         done < <(printf "%s\n" "${toks[@]:$((sel + 1))}")
                     else
                         # N:X - a range of fields
-                        segs+=("$(printf "%s%q" "$str" "${toks[@]:${sel}:1}")")
+                        segs+=("$(printf "%s%s" "$str" "${toks[@]:${sel}:1}")")
                         while read -r l; do
                             if [ -z "$l" ]; then continue; fi
-                            segs+=("$(printf "%q" "$l")")
+                            segs+=("$(printf "%s" "$l")")
                         done < <(printf "%s\n" "${toks[@]:$((sel + 1)):$((len - 1))}")
                     fi
                     # maybe done with this variable
@@ -233,9 +265,10 @@ EOF
     fi
     # generate output string maybe with shell quotes
     local out
-    out="$(eval printf "%s\ " "${segs[@]}")"
     if ((want)); then
-        out="$(printf "%s " "${segs[@]}")"
+        out=$(printf "%q " "${segs[@]}")
+    else
+        out=$(printf "%s " "${segs[@]}")
     fi
     # strip trailing whitespace
     out="${out%${out##*[![:space:]]}}"
@@ -271,13 +304,13 @@ OPTIONS
   -s : simulate : Print the string formatted by TEMPLATE using the line.
 
  General options:
-  -e TEMPLATE  : Template to format selected line.
-  -d DELIMITER : Split selected line on given delimeter.
-  -f FIELDS    : Extract fields from selected line.
-  -i IN-FILE   : Read selections from file instead of stdin.
-  -x           : Use a graphical line selection program.
-  -y           : Use a text terminal line selection program.
-  -0           : Read null terminated lines from input.
+  -e TEMPLATE   : Template to format selected line.
+  -d DELIMITER  : Split selected line on given delimeter.
+  -f FIELDS     : Extract fields from selected line.
+  -i IN-FILE    : Read selections from file instead of stdin.
+  -x            : Use a graphical line selection program.
+  -y            : Use a text terminal line selection program.
+  -0            : Read null terminated lines from input.
 
 ENVIRONMENT
  CZ_GUI         : preferred interface - 1=graphical 0=terminal
@@ -503,15 +536,15 @@ EOF
             printf "%s\n" "$out"
             ;;
         1) # print some fields extracted from the line
-            if ! out="$(nth -p "${fld}" "${toks[@]}" 2>/dev/null)"; then
-                printf "Failed to parse template.\n%s\n" "$use" >&2
+            if ! out="$(nth -p "${fld}" "${toks[@]}")"; then
+                printf "Failed to parse template.\n%s\n" "$fld" >&2
                 return 4
             fi
             printf "%s\n" "$out"
             ;;
         2) # execute templated string
-            if ! cmd="$(nth -q "${tpl}" "${toks[@]}" 2>/dev/null)"; then
-                printf "Failed to parse template.\n%s\n" "$use" >&2
+            if ! cmd="$(nth -q "${tpl}" "${toks[@]}")"; then
+                printf "Failed to parse template.\n%s\n" "$tpl" >&2
                 return 4
             fi
             if [ -n "${stdin[*]}" ]; then
@@ -526,8 +559,8 @@ EOF
             return $?
             ;;
         3) # print templated string
-            if ! cmd="$(nth -p "${tpl}" "${toks[@]}" 2>/dev/null)"; then
-                printf "Failed to parse template.\n%s\n" "$use" >&2
+            if ! cmd="$(nth -p "${tpl}" "${toks[@]}")"; then
+                printf "Failed to parse template.\n%s\n" "$tpl" >&2
                 return 4
             fi
             printf "%s\n" "$cmd"
@@ -671,12 +704,12 @@ cz_bash_job() {
 
 cz_bash_history() {
     req sort || return 255
-    cz -f 3: -e "eval {3:}" -i <(HISTTIMEFORMAT="%F %T " history | sort -r -n)
+    cz -f 3: -e "{3:}" -i <(HISTTIMEFORMAT="%F %T " history | sort -r -n)
 }
 
 declare n=""
 while read -r n _; do
-    eval "cz_$n() { cz -i <(compgen -A $n); }"
+    eval "cz_$n() { cz -i <(builtin compgen -A $n); }"
 done <<EOF
 alias
 arrayvar
@@ -705,7 +738,7 @@ unset n
 
 cz_command() {
     CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:dark green:white:black}"
-    cz -f 0 -e '{0:}' -i <(compgen -A command)
+    cz -f 0 -e '{0:}' -i <(builtin compgen -A command)
 }
 
 cz_dict_strategy() {
@@ -788,11 +821,11 @@ cz_gcloud_bq_dataset() {
 cz_gcloud_bq_table() {
     req bq jq || return 255
     local proj="$1"
-    local dat="$2"
-    if [ -z "$proj" ] || [ -z "$dat" ]; then
-        read -r data proj < <(cz -f 1,2 -q gcloud bq dataset)
+    local ds="$2"
+    if [ -z "$proj" ] || [ -z "$ds" ]; then
+        read -r ds proj < <(cz -f 1,2 -q gcloud bq dataset)
     fi
-    cz -f 0 -i <(bq --format=json --project_id "$proj" ls "$dat" | \
+    cz -f 0 -i <(bq --format=json --project_id "$proj" ls "$ds" | \
                      jq -r '.[] | [.id, (.tableReference | (.tableId, .datasetId, .projectId)), .type] | @tsv')
 }
 
@@ -977,19 +1010,30 @@ cz_ispell() {
     printf "%s\n" "${lines[@]}"
 }
 
+cz_jq() {
+    cz jq json "$@"
+}
+
 cz_jq_json() {
     req jq || return 255
-    if ! [ -f "$1" ]; then return 2; fi
-    cz -e "jq -r {0} $1" -i <(jq -r '"." + (path(..) | map("[\(tojson)]") | join(""))' "$1")
+    local f=""
+    if ! f=$(acc "${1:-/dev/stdin}"); then
+        return 4
+    fi
+    cz -e "jq -r {0} $f" < <(jq -r '"." + (path(..) | map("[\(tojson)]") | join(""))' "$f")
 }
 
 cz_jq_yaml() {
-    req jq python3 || return 255
-    local f="$1"
-    if ! [ -f "$f" ]; then return 2; fi
-    local t="/tmp/${f##*/}.json"
-    python3 -c 'import sys,json,yaml; print(" ".join([json.dumps(x) for x in yaml.load_all(sys.stdin, Loader=yaml.SafeLoader)]))' < "$f" > "$t"
-    cz jq json "$t"
+    req jq perl || return 255
+    local f=""
+    if ! f=$(acc "${1:-/dev/stdin}"); then
+        return 4
+    fi
+    local y
+    if ! y=$(perl -MYAML -MJSON -E 'say encode_json(Load(do{local $/;<>}))' < "$f"); then
+        return 5
+    fi
+    cz jq json <<< "$y"
 }
 
 cz_kill() {
@@ -1288,7 +1332,7 @@ cz_usb() {
 }
 
 cz_value() {
-    cz -i <(sleep "$#"; printf "%s\n" "$@")
+    cz -i <(printf "%s\n" "$@")
 }
 
 cz_word() {
