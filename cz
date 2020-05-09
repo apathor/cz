@@ -3,10 +3,11 @@
 # (C) 2020 by Mike Lalumiere
 #
 # TODO Optional caching of input text
-# TODO Establish function exit status convention
+# TODO Establish plugin exit status convention
 # TODO Completion hook function?
 # TODO Option to specify prompt (see 'dmenu -p foo')
 # TODO AWS/s3 plugins
+# TODO I8n?
 
 if (("${BASH_VERSINFO[0]}" < 4)); then
     printf "%s\n" "$0 requires bash 4!" >&2
@@ -19,7 +20,7 @@ acc() {
 acc [FILE] < INPUT > PATH
 Given input file or pipe generate path of usable file.
 EOF
-    # accept options
+    # no options just help
     local opt OPTIND OPTARG
     while getopts ":h" opt; do
         case "$opt" in
@@ -50,7 +51,7 @@ chuz() {
 chuz < INPUT > LINE
 Select one line from input.
 EOF
-    # accept options
+    # no options just help
     local opt OPTIND OPTARG
     while getopts ":h" opt; do
         case "$opt" in
@@ -96,7 +97,7 @@ hep TOGGLE < INPUT > OUTPUT
 Print input text if TOGGLE is non-empty, otherwise fail.
 This is a utility function to aid in optionally printing a block of usage text.
 Example:
-{ hep "\$HELP_TOGGLE" && return; } <<<EOF ...
+ $ { hep "\$HELP_TOGGLE" && return; } <<<EOF ...
 EOF
     # no option but help
     local opt OPTIND OPTARG
@@ -124,9 +125,9 @@ Require given files and commands.
 Succeed iff each given argument is a known command or readable file.
 This is a utility function to aid in defining program requirements.
 Example:
-req awk /etc/passwd || return 5
+ $ req awk /etc/passwd || return 5
 EOF
-    # accept options
+    # no options just help
     local opt OPTIND OPTARG
     while getopts ":h" opt; do
         case "$opt" in
@@ -163,19 +164,23 @@ OPTIONS
  -p : print output normally
  -q : print output quoted for use in the shell
 
+EXAMPLE
+ $ nth '{1} {0} {0}' foo bar
+ $ nth '{2:2}' 1 2 3 4 5
+ $ nth '{7,4,11,11,14}' {a..z}
 EOF
     # accept options
-    local want=0
+    local fmt='%s'
     local opt OPTIND OPTARG
     while getopts ":hpq" opt; do
         case "$opt" in
-            p)
-                want=0
+            p) # plain format
+                fmt='%s'
                 ;;
-            q)
-                want=1
+            q) # quoted format
+                fmt='%q'
                 ;;
-            *)
+            *) # invalid?
                 printf "%s\n" "$use" >&2
                 return 1
                 ;;
@@ -242,7 +247,6 @@ EOF
             # variable mode
             case "$char" in
                 '{') # escaped literal curly brace
-                    printf "%s\n" "woo!" >&2
                     str+="$char"
                     mode="text"
                     ;;
@@ -258,25 +262,24 @@ EOF
                     len="${BASH_REMATCH[3]:-${BASH_REMATCH[2]}}"
                     if [ -z "$len" ]; then
                         # N - one specific field
-                        segs+=("$(printf "%s" "${str}${toks[$sel]}")")
+                        segs+=("$(printf "%s${fmt}" "${str}" "${toks[$sel]}")")
+                        str=""
                     elif [ "$len" == ":" ]; then
                         # N: - a slice of fields
-                        segs+=("$(printf "%s%s" "$str" "${toks[@]:${sel}:1}")")
-                        while read -r l; do
-                            if [ -z "$l" ]; then continue; fi
-                            segs+=("$(printf "%s" "$l")")
-                        done < <(printf "%s\n" "${toks[@]:$((sel + 1))}")
+                        for tok in "${toks[@]:$((sel))}"; do
+                            segs+=("$(printf "%s${fmt}" "$str" "$tok")")
+                            str=""
+                        done
                     else
                         # N:X - a range of fields
-                        segs+=("$(printf "%s%s" "$str" "${toks[@]:${sel}:1}")")
                         if [[ "$len" -lt 1 ]]; then
                             printf "Invalid range '%s'\n" "$len" >&2
                             return 3
                         fi
-                        while read -r l; do
-                            if [ -z "$l" ]; then continue; fi
-                            segs+=("$(printf "%s" "$l")")
-                        done < <(printf "%s\n" "${toks[@]:$((sel + 1)):$((len - 1))}")
+                        for tok in "${toks[@]:$((sel)):$((len))}"; do
+                            segs+=("$(printf "%s${fmt}" "$str" "$tok")")
+                            str=""
+                        done
                     fi
                     # maybe done with this variable
                     if [[ "$char" == '}' ]]; then
@@ -306,11 +309,7 @@ EOF
     fi
     # generate output string maybe with shell quotes
     local out
-    if ((want)); then
-        out=$(printf "%q " "${segs[@]}")
-    else
-        out=$(printf "%s " "${segs[@]}")
-    fi
+    out=$(printf "%s " "${segs[@]}")
     # strip trailing whitespace
     out="${out%${out##*[![:space:]]}}"
     # write it
@@ -321,11 +320,16 @@ rleval() {
     read -r -d '' use <<EOF
 rleval COMMAND...
 Evaluate given command and insert output into the bash readline buffer.
-Command is templated with 'nth' using current line tokens. See 'nth -h'.
+The command is templated with 'nth' using current line tokens. See 'nth -h'.
+This function is intended to be used with the bash builtin 'bind -x'.
 
 Examples:
- bind -x '"\C-xf":rleval fortune"'
- bind -x '"\C-x0":rleval "echo {0}"'
+ Insert the first token from the current readline buffer.
+ $ bind -x '"\C-x0":rleval "echo {0}"'
+
+ Insert fortunes on demand!
+ $ bind -x '"\C-xf":rleval fortune"'
+
 EOF
     # command is required
     if ! (($#)); then
@@ -360,9 +364,21 @@ rlword COMMAND...
 Evaluate given command and replace the word at cursor in the readline buffer.
 Command is templated with 'nth' using the word at point and current line tokens
  in that order. The word at cursor point is '{0}'. See 'nth -h'.
+This function is intended to be used with the bash builtin 'bind -x'.
 
 Examples:
- bind -x '"\C-xp":rlword pwgen 20 1'
+ Replace the current word with a generated password.
+ $ bind -x '"\C-xp":rlword "pwgen 20 1"'
+
+ Replace the current word with itself reversed.
+ $ bind -x '"\C-xt":rlword "rev <<< {0}"'
+
+ Select a word already in the readline buffer.
+ $ bind -x '"\C-xy":rlword "cz argv {1:}"
+
+ Fun with base64!
+ $ bind -x '"\C-xb":rlword "base64 <<< {0}"'
+ $ bind -x '"\C-xB":rlword "base64 -d <<< {0}"'
 EOF
     # command is required
     if ! (($#)); then
@@ -370,24 +386,41 @@ EOF
         return 1
     fi
     # tokenize current readline line
-    local tok="" toks=()
+    local toks=()
     read -r -a toks <<< "$READLINE_LINE"
     # determine word at point
-    local ind=0 pt=0
-    for tok in "${toks[@]}"; do
-        let pt+=$(( "${#tok}" + 1 ))
-        if (( pt >= READLINE_POINT )); then
-            break
-        fi
-        let ind++
-    done
-    # all done if no word found
-    if [ -z "$tok" ] || (( READLINE_POINT >= pt )); then
-        return 1
+    local line="$READLINE_LINE" pt="$READLINE_POINT"
+    local beg=0 end=0 ins=0 word=""
+    if [[ "${line:$pt:1}" == ' ' ]]; then
+        # insert a word if point is on a space
+        beg="$pt"
+        end="$pt"
+        ins=1
+    else
+        # replace word at point if on a non-space character
+        local x=0
+        # find beginning of the word
+        beg=0
+        for ((x="$pt"; x>=0; x--)); do
+            if [[ "${line:$x:1}" == ' ' ]]; then
+                beg=$((x + 1))
+                break
+            fi
+        done
+        # find end of the word
+        end="${#line}"
+        for ((x="$pt"; x<="${#line}"; x++)); do
+            if [[ "${line:$x:1}" == ' ' ]]; then
+                end="$x"
+                break
+            fi
+        done
+        # grab the word
+        word="${line:$beg:$(( end - beg ))}"
     fi
     # template command
     local cmd=""
-    if ! cmd="$(nth -q "$*" "$tok" "${toks[@]}")"; then
+    if ! cmd=$(nth -q "$*" "$word" "${toks[@]}"); then
         return 2
     fi
     # eval command
@@ -396,10 +429,18 @@ EOF
         return 3
     fi
     # update the readline buffer
-    toks["$ind"]="$str"
-    READLINE_LINE="${toks[*]}"
-    let READLINE_POINT+="${#str}"
+    local before="${line:0:$beg}"
+    local after="${line:$end}"
+    # wrap inserted words in spaces
+    if ((ins)); then
+        str=" ${str} "
+    fi
+    # update the readline buffer
+    READLINE_LINE="${before}${str}${after}"
+    READLINE_POINT=$((beg + ${#str}))
 }
+
+# bind -x '"\C-x;":echo "$READLINE_POINT"'
 
 ###
 
@@ -425,13 +466,13 @@ OPTIONS
  These options set program mode. Select a line then...
   -p : print    : Print the line. This is the default mode.
   -q : quote    : Print extracted FIELDS from the line.
-  -r : run      : Run the string formatted by TEMPLATE using the line.
-  -s : simulate : Print the string formatted by TEMPLATE using the line.
+  -r : run      : Run the string formatted by TEMPLATE using fields from the line.
+  -s : simulate : Print the string formatted by TEMPLATE using fields from the line.
 
  General options:
   -d DELIMITER  : Set delimiter to split selected line.
-  -e TEMPLATE   : Set command template. This option implies mode '-q'.
-  -f FIELDS     : Set field template. This option implies mode '-r'.
+  -e TEMPLATE   : Set command template. This option implies mode '-r'.
+  -f FIELDS     : Set field template. This option implies mode '-q'.
   -i IN-FILE    : Set file from which to read selections instead of stdin.
   -x            : Use a graphical line selection program.
   -y            : Use a text terminal line selection program.
@@ -463,11 +504,13 @@ EOF
  $ cz -f 0,5 -d : < /etc/passwd
  $ cd \$(cz find dir)
  $ cz \$(cz -l | cz)
- $ cz -e 'dig {1} MX' nss host
+ $ cz -e 'dig {1} MX' compgen hostname
  $ cz xclip out | cz -e 'firefox {0}' uri
  $ cz -e 'cz jq {0}' locate *.json
- $ cz -e "cz -q find file {1}" apparix
+ $ cz -e 'cz -q find file {1}' apparix
+ $ cz -e 'rev <<< "{0:}"' -i <(printf "%s\n" '$HOST' '; false' '\$(fortune)')
 EOF
+    printf "%s\n" "${hows[$(( RANDOM % ${#hows[@]} ))]}" >/dev/null
     # determine appropriate type of program
     local gfx="${CZ_GUI:-1}"
     if [ -z "$DISPLAY" ]; then gfx=0; fi
@@ -503,7 +546,12 @@ EOF
                 run=2
                 ;;
             f) # fields to be extracted
-                fld="${fld:-{${OPTARG}\}}"
+                fld="${fld:-${OPTARG}}"
+                if ! [[ "$fld" =~ ^([0-9]+(:[0-9]+?)?,?)*$ ]]; then
+                   printf "%s\n" "Bad field spec?" >&2
+                   return 2
+                fi
+                fld="{${fld}}"
                 run=1
                 ;;
             h) # user needs assistance
@@ -786,10 +834,34 @@ EOF
     cz -i <(an -l "${2:-3}" "$1")
 }
 
-cz_ansibledoc() {
+cz_ansible_group() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz ansibledoc
-Select from Ansible documentation topics.
+cz ansible group
+Select a group from an ansible inventory then draw a graph of its members.
+See ANSIBLE_INVENTORY and ANSIBLE_CONFIG environment variables.
+EOF
+    req ansible-inventory jq || return 5
+    cz -f 0 -e 'ansible-inventory --graph {0}' \
+       -i <(ansible-inventory --list | \
+                jq -r '. | keys[] | select(. | test("^_") | not)')
+}
+
+cz_ansible_host() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz ansible host
+Select a host from an ansible inventory then print its variables as JSON.
+See ANSIBLE_INVENTORY and ANSIBLE_CONFIG environment variables.
+EOF
+    req ansible-inventory jq || return 5
+    cz -f 0 -e 'ansible-inventory --host {0}' \
+       -i <(ansible-inventory --list | \
+                jq -r '[.[] | select(.hosts!=null) | .hosts[]] | flatten | unique[]')
+}
+
+cz_ansible_doc() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz ansible doc
+Select from ansible documentation topics.
 EOF
     req ansible-doc || return 5
     cz -f 0 -e "ansible-doc {0}" < <(ansible-doc -l)
@@ -1502,7 +1574,7 @@ cz_lastpass() {
 cz lastpass
 Select the ID of a LastPass entry then look up the password component.
 EOF
-    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:purple:red:black}"
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:dark blue:black:red}"
     req lpass || return 5
     local menu=()
     local pat='^(.*[^/]) \[id: ([[:digit:]]+)\]$'
@@ -1573,11 +1645,11 @@ Select a cz plugin starting with prefix and run it in the given mode.
 Mode options are -p -q -r -s. The default mode is -p.
 This plugin is best used bound to a key, providing a quick
  interface to every other cz plugin.
-Example:
- bind -x '"\C-xx":rleval "cz meta -q"' # insert field
- bind -x '"\C-xX":rleval "cz meta -p"' # insert line
- bind -x '"\C-xz":rleval "cz meta -r"' # insert command output
- bind -x '"\C-xZ":rleval "cz meta -s"' # insert command
+Examples:
+ $ bind -x '"\C-xx":rleval "cz meta -q"' # insert field
+ $ bind -x '"\C-xX":rleval "cz meta -p"' # insert line
+ $ bind -x '"\C-xz":rleval "cz meta -r"' # insert command output
+ $ bind -x '"\C-xZ":rleval "cz meta -s"' # insert command
 EOF
     local mode="-p"
     local opt OPTIND OPTARG
@@ -1707,9 +1779,9 @@ EOF
 cz_pass() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz pass
-Select an entry from a pass(1) directory and print its contents.
+Select an entry from a pass directory and print its contents.
 EOF
-    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:purple:black:red}"
+    CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:dark blue:black:green}"
     req pass find sed || return 5
     local pdir="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
     cz -f 0 -e 'pass show {0}' \
@@ -1725,10 +1797,19 @@ EOF
     cz -f 0 -i <(lspci)
 }
 
-cz_perldoc() {
+cz_perl_module() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz perldoc
-Select a perl document and open it for reading.
+cz perl module
+Select an installed perl module.
+EOF
+    req perldoc perldoc-search || return 5
+    cz -f 0 -i <(perl -MExtUtils::Installed  -E 'say for ExtUtils::Installed->new->modules')
+}
+
+cz_perl_doc() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz perl doc
+Select a perldoc page and open it for reading.
 EOF
     req perldoc perldoc-search || return 5
     cz -f 0 -e "perldoc {0}" < <(perldoc-search .)
@@ -1824,7 +1905,7 @@ cz ssh host
 Select a host from SSH configuration then connect to that host.
 EOF
     req ssh sed || return 5
-    cz -f 0 -e 'ssh {0}' < <(sed -E -n 's/^\s*Host\s+(.*)\s*/\1/ip' < "$HOME/.ssh/config")
+    cz -f 0 -e 'ssh -t {0}' -i <(sed -E -n 's/^\s*Host\s+(.*)\s*/\1/ip' < "$HOME/.ssh/config")
 }
 
 cz_ssh_key() {
@@ -1988,9 +2069,9 @@ EOF
         return 4
     fi
     if type urifind &>/dev/null; then
-        cz -e 'sensible-browser {0}' -i <(urifind -su < "$f")
+        cz -e 'sensible-browser {0}' < <(urifind -su < "$f")
     elif type xurls &>/dev/null; then
-        cz -e 'sensible-browser {0}' -i <(xurls -r < "$f")
+        cz -e 'sensible-browser {0}' < <(xurls -r < "$f")
     else
         req xurls urifind || return 5
     fi
