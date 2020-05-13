@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2031
+#
 # cz - Line selection abstraction (plus utilities!)
 # (C) 2020 by Mike Lalumiere
 #
@@ -474,8 +476,9 @@ OPTIONS
   -e TEMPLATE   : Set command template. This option implies mode '-r'.
   -f FIELDS     : Set field template. This option implies mode '-q'.
   -i IN-FILE    : Set file from which to read selections instead of stdin.
-  -x            : Use a graphical line selection program.
-  -y            : Use a text terminal line selection program.
+  -x            : Use a graphical line selection tool.
+  -y            : Use a text terminal line selection tool.
+  -z TOOL       : Use the given line selection tool.
   -0            : Read null terminated lines from input.
 
 TEMPLATES
@@ -511,21 +514,14 @@ EOF
  $ cz -e 'rev <<< "{0:}"' -i <(printf "%s\n" '$HOST' '; false' '\$(fortune)')
 EOF
     printf "%s\n" "${hows[$(( RANDOM % ${#hows[@]} ))]}" >/dev/null
-    # determine appropriate type of program
-    local gfx="${CZ_GUI:-1}"
-    if [ -z "$DISPLAY" ]; then gfx=0; fi
-    # figure available graphical program
-    local gbins
+    # here are the supporterd line selection tools
+    local gbins=() tbins=()
     read -r -a gbins <<< "${CZ_BINS_GUI:-dmenu rofi}"
-    for it in "${gbins[@]}"; do
-        if type "$it" &>/dev/null; then gbin="$it"; break; fi
-    done
-    # figure available terminal program
-    local tbins
     read -r -a tbins <<< "${CZ_BINS_TTY:-fzf pick pipedial sentaku iselect vis-menu}"
-    for it in "${tbins[@]}"; do
-        if type "$it" &>/dev/null; then tbin="$it"; break; fi
-    done
+    # determine type of interface for line selection tool
+    local app="" gfx=""
+    IFS=: read -r gfx app _ <<< "${CZ_GUI:-1}"
+    if [ -z "$DISPLAY" ]; then gfx=0; fi
     # accept options
     local tpl="${CZ_TEMPLATE}" # string template
     local fld="${CZ_FIELDS}"   # string field selection
@@ -534,14 +530,14 @@ EOF
     local run=""               # null program mode implied by another option
     local nul=0                # boolean reading null separated lines
     local dlm="$IFS"           # string delimeter to split selected line
-    local help=""              # string indicator for help requested
+    local help="${CZ_HELP}"    # string indicator for help requested
     local opt OPTIND OPTARG
-    while getopts ":d:e:f:hi:lkpqrsvxy0" opt; do
+    while getopts ":d:e:f:hi:lkpqrsvxyz:0" opt; do
         case "$opt" in
             d) # delimeter
                 dlm="$OPTARG"
                 ;;
-            e) # template to be executed
+            e) # template to format command
                 tpl="${tpl:-$OPTARG}"
                 run=2
                 ;;
@@ -572,7 +568,7 @@ EOF
                 done < <(compgen -c) | sort
                 return 0
                 ;;
-            k) # list supported executables
+            k) # list supported tools
                 read -r -d '' exes <<EOF
 dmenu     https://tools.suckless.org/dmenu
 fzf       https://github.com/junegunn/fzf
@@ -606,11 +602,19 @@ EOF
                 printf "cz %s\n" "$ver"
                 return 0
                 ;;
-            x) # try to use a graphical executable for line selection
+            x) # try to use a graphical tool for line selection
                 gfx=1
                 ;;
-            y) # try to use a terminal executable for line selection
+            y) # try to use a terminal tool for line selection
                 gfx=0
+                ;;
+            z) # force some specific tool
+                app="$OPTARG"
+                # shellcheck disable=SC2076
+                if ! [[ "${gbins[*]} ${tbins[*]}" =~ "${app}" ]]; then
+                    printf "Unknown tool %s\n" "$app" >&2
+                    return 2
+                fi
                 ;;
             \?) # invalid option?
                 printf "Bad option: -%s\n%s\n" "$OPTARG" "$use" >&2
@@ -619,6 +623,18 @@ EOF
         esac
     done
     shift $((OPTIND - 1))
+    # pick an appropriate line selection tool
+    if [ -z "$app" ]; then
+        if ((gfx)); then
+            for app in "${gbins[@]}"; do
+                if type "$app" &>/dev/null; then break; fi
+            done
+        else
+            for app in "${tbins[@]}"; do
+                if type "$app" &>/dev/null; then break; fi
+            done
+        fi
+    fi
     # program mode might have been implied
     mode="${mode:-$run}"
     # plugins - any command in the format 'cz_$WORD'
@@ -640,8 +656,9 @@ EOF
         fi
         shift "$word"
         # run the plugin with override environment variables
-        CZ_FIELDS="$fld" CZ_GUI="$gfx" CZ_MODE="$mode" CZ_TEMPLATE="$tpl" CZ_HELP="$help" \
-                 "$plug" "$@"
+        CZ_GUI="${gfx}:${app}"  CZ_HELP="$help" CZ_MODE="$mode" \
+              CZ_FIELDS="$fld" CZ_TEMPLATE="$tpl" \
+              "$plug" "$@"
         return $?
     fi
     # maybe help was requested
@@ -671,13 +688,6 @@ EOF
             return 4
         fi
     fi
-    # pick an appropriate line selection program
-    local app=""
-    if ((gfx)); then
-        app="$gbin"
-    else
-        app="$tbin"
-    fi
     # choose a line using a known program
     local out
     out=$(case "$app" in
@@ -694,9 +704,14 @@ EOF
               sentaku  ) sentaku -s $'\n' | head -n1 ;;
               slmenu   ) slmenu -i -l 30 ;;
               vis-menu ) vis-menu -i -l 30 ;;
-              *        ) chuz ;;
-          esac < <(if ((nul)); then printf "%q\n" "${lines[@]}"
-                   else printf "%s\n" "${lines[@]}"; fi)
+              chuz     ) chuz ;;
+              * )
+              ;;
+          esac < <(if ((nul)); then
+                       printf "%q\n" "${lines[@]}"
+                   else
+                       printf "%s\n" "${lines[@]}"
+                   fi)
        )
     # rectify shell quoted line
     if ((nul)); then
@@ -725,19 +740,18 @@ EOF
             fi
             printf "%s\n" "$out"
             ;;
-        2) # execute templated string
+        2) # template the command string
             if ! cmd="$(nth -q "${tpl}" "${toks[@]}")"; then
                 printf "Failed to parse template.\n%s\n" "$tpl" >&2
                 return 4
             fi
+            # eval the template string maybe passing buffered input
             if [ -n "${stdin[*]}" ]; then
-                # input for filter commands
-                CZ_MODE="" CZ_FIELDS="" CZ_TEMPLATE="" CZ_GUI="$gfx" \
-                      eval "$cmd" < <(printf "%s\n" "${stdin[@]}")
+                CZ_MODE="" CZ_FIELDS="" CZ_TEMPLATE="" CZ_GUI="${gfx}:${app}" \
+                       eval "$cmd" < <(printf "%s\n" "${stdin[@]}")
             else
-                # no input for commands that need an attached terminal
-                CZ_MODE="" CZ_FIELDS="" CZ_TEMPLATE="" CZ_GUI="$gfx" \
-                      eval "$cmd"
+                CZ_MODE="" CZ_FIELDS="" CZ_TEMPLATE="" CZ_GUI="${gfx}:${app}" \
+                       eval "$cmd"
             fi
             return $?
             ;;
@@ -753,61 +767,64 @@ EOF
 
 # cz command completion
 function _cz() {
-    # get current and previous word
-    local pre=""
-    if ((COMP_CWORD)); then pre="${COMP_WORDS[COMP_CWORD - 1]}"; fi
-    local cur="${COMP_WORDS[COMP_CWORD]}"
-    # maybe the previous word is an option that expects an argument
-    case "$pre" in
-        -d) COMPREPLY=(); return ;;
-        -e) COMPREPLY=($(compgen -c -- "$cur")); return ;;
-        -f) COMPREPLY=($(compgen -W "0 1 2 3 4 5 6 7 8 9" -- "$cur")); return ;;
-        -i) COMPREPLY=($(compgen -f -- "$cur")); return ;;
-    esac
+    # get lists of supported tools and plugins
+    local tools=() plugs=()
+    mapfile -t tools < <(cz -k)
+    mapfile -t plugs < <(cz -l)
     # cz has some options
     declare -A opts
-    for opt in -{d,e,f,h,i,l,k,p,q,r,s,v,x,y,0}; do opts["$opt"]=0; done
-    # cz has some plugins
-    declare -a exts
-    exts=($(cz -l))
+    for opt in -{d,e,f,h,i,l,k,p,q,r,s,v,x,y,z,0}; do opts["$opt"]=0; done
     # scan all previous words
     local base="" last="" word="" i=0
-    for ((i=1; i < COMP_CWORD; i++)); do
+    for ((i=1; i < "$COMP_CWORD"; i++)); do
+        # step through words
         word="${COMP_WORDS[$i]}"
         last="${COMP_WORDS[$i-1]}"
         # have options ended?
-        if [[ "$last" =~ ^-[[:alnum:]]^ ]]; then
+        if [[ "$word" =~ ^-[[:alnum:]]$ ]]; then
             # record options already seen
             unset opts["$word"]
         elif [[ "$word" =~ ^[[:alnum:]]+ ]]; then
-            # check if options have ended
-            if [[ "$last" =~ ^-[defi]$ ]]; then continue; fi
+            # maybe this is an argument to an option
+            if [[ "$last" =~ ^-[defiz]$ ]]; then continue; fi
             opts=()
-            # concat command prefix
+            # concat plugin prefix
             base="${base}_${word}"
             base="${base##_}"
        fi
     done
+    # current and previous words are given
+    local prev="${3}"
+    local curr="${2}"
+    # maybe the previous word is an option that expects an argument
+    if [[ "$prev" =~ ^-[defiz]$ ]]; then
+        case "$prev" in
+            -d) COMPREPLY=(); ;;
+            -e) COMPREPLY=($(compgen -c -- "$curr")) ;;
+            -f) COMPREPLY=($(compgen -W "0 1 2 3 4 5 6 7 8 9" -- "$curr")) ;;
+            -i) COMPREPLY=($(compgen -f -- "$curr")) ;;
+            -z) COMPREPLY=($(compgen -W "${tools[*]%% *}"  -- "$curr")) ;;
+        esac
+        return
+    fi
     # first complete initial command token and options
     if [ -z "$base" ]; then
-        COMPREPLY=($(compgen -W "${!opts[*]} ${exts[*]%%_*}" -- "$cur"))
+        COMPREPLY=($(compgen -W "${!opts[*]} ${plugs[*]%%_*}" -- "$curr"))
         return
     fi
     # determine next command token
-    local next=()
-    local got=""
-    local pat="^${base}_([[:alnum:]]+)"
-    for ext in "${exts[@]}"; do
-        if [[ "$ext" =~ $pat ]]; then
-            next+=("${BASH_REMATCH[1]%%_*}" "${got}")
+    local next=() pat="^${base}_([[:alnum:]]+)"
+    for plug in "${plugs[@]}"; do
+        if [[ "$plug" =~ $pat ]]; then
+            next+=("${BASH_REMATCH[1]%%_*}")
         fi
     done
     # maybe complete next command token
     if (("${#next[@]}")); then
-        COMPREPLY=($(compgen -W "${next[*]}" -- "$cur"))
+        COMPREPLY=($(compgen -W "${next[*]}" -- "$curr"))
         return
     fi
-    # maybe complete something specific for a plugin
+    # TODO maybe complete something specific for a plugin
     case "$base" in
         *) return ;;
     esac
@@ -1755,7 +1772,7 @@ cz nss passwd
 Select a system user.
 EOF
     req getent || return 5
-    cz -f 0 -e '{0}' -d : -i <(getent passwd)
+    cz -f 0 -d : -i <(getent passwd)
 }
 
 cz_nss_protocol() {
