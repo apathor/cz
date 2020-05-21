@@ -255,7 +255,7 @@ EOF
                 [,\}]) # field separator
                     # match and validate the field
                     if ! [[ "$fld" =~ ^(-?[[:digit:]]+)(:([[:digit:]]+)?)?$ ]]; then
-                        printf "Invalid field specifier '%s'\n" "$fld" >&2
+                        printf "Invalid field string '%s'\n" "$fld" >&2
                         return 3
                     fi
                     # get matched groups - field and range
@@ -488,7 +488,7 @@ TEMPLATES
      {X:}    - arguments X through end of arguments
      {X:Y}   - arguments X through X + Y
      {X,Y,Z} - arguments X, Y, and Z
- FIELDS consists of one of the above without enclosing '{}'.
+ FIELDS consists of one of the above without the enclosing '{}'.
 
 ENVIRONMENT
  CZ_GUI         : preferred interface - 1=graphical 0=terminal
@@ -544,10 +544,9 @@ EOF
             f) # fields to be extracted
                 fld="${fld:-${OPTARG}}"
                 if ! [[ "$fld" =~ ^([0-9]+(:[0-9]+?)?,?)*$ ]]; then
-                   printf "%s\n" "Bad field spec?" >&2
+                   printf "%s\n" "Invalid field template '%s'" "$fld" >&2
                    return 2
                 fi
-                fld="{${fld}}"
                 run=1
                 ;;
             h) # user needs assistance
@@ -556,7 +555,7 @@ EOF
             i) # input file from which to read selections
                 inp="$OPTARG"
                 if ! [ -r "$inp" ]; then
-                    printf "%s\n" "Bad input file" >&2
+                    printf "%s\n" "Input file is unreadable!" >&2
                     return 2
                 fi
                 ;;
@@ -727,14 +726,14 @@ EOF
     IFS="$dlm" read -r -a toks <<< "$out"
     # set harmless defaults for template arguments
     tpl="${tpl:-echo {0:\}}"
-    fld="${fld:-{0:\}}"
+    fld="${fld:-0:}"
     # do something with the selection depending on mode
     case "${mode:-0}" in
         0) # print selection
             printf "%s\n" "$out"
             ;;
         1) # print some fields extracted from the line
-            if ! out="$(nth -p "${fld}" "${toks[@]}")"; then
+            if ! out="$(nth -p "{${fld}}" "${toks[@]}")"; then
                 printf "Failed to parse template.\n%s\n" "$fld" >&2
                 return 4
             fi
@@ -1873,7 +1872,7 @@ Select a pulseaudio sink and a percentage to set its volume.
 EOF
     req pactl || return 5
     local sink
-    if ! sink=$(cz -p pulseaudio sink); then return 2; fi
+    if ! sink=$(cz -q pulseaudio sink); then return 2; fi
     cz -f 0 -e "pactl set-sink-volume $sink {0}" -i <(printf "%s%%\n" {100..0..5})
 }
 
@@ -2059,9 +2058,10 @@ EOF
     local block="${1:-$(CZ_MODE="" CZ_FIELDS="" CZ_TEMPLATE="" cz -p unicode block)}"
     if [ -z "$block" ]; then return 2; fi
     cz -f 0 -d : \
-       -i <(perl -MUnicode::UCD=charinfo,charblock \
+       -i <(perl -MUnicode::UCD=charinfo,charblock,charblocks \
                  -E 'use open ":std", ":encoding(UTF-8)";' \
-                 -E 'my ($s, $e) = @{charblock(shift)->[0]};' \
+                 -E 'my $b = shift; exit(1) unless %{charblocks()}{$b};' \
+                 -E 'my ($s, $e) = @{charblock($b)->[0]};' \
                  -E 'say join ":", chr hex $_->{code}, $k, $_->{name} for map { charinfo($_) } ($s .. $e)' \
                  "$block")
 }
@@ -2073,6 +2073,15 @@ Select a unicode block by name.
 EOF
     req perl || return 5
     cz -f 0: -i <(perl -MUnicode::UCD=charblocks -E 'say for sort keys %{charblocks()}')
+}
+
+cz_unicode_script() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz unicode script
+Select a unicode script by name.
+EOF
+    req perl || return 5
+    cz -f 0: -i <(perl -MUnicode::UCD=charscripts -E 'say for sort keys %{charscripts()}')
 }
 
 cz_uri() {
