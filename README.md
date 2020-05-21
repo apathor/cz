@@ -1,4 +1,5 @@
 ![cz example gif](/web/cz-ex1.gif)
+
 cz [OPTIONS] < LINES
 Select a line from input with an appropriate tool.
 
