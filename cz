@@ -20,7 +20,8 @@ acc() {
     # usage
     read -r -d '' use <<EOF
 acc [FILE] < INPUT > PATH
-Given input file or pipe generate path of usable file.
+Given a file path check that the path is readable and print the file name.
+Given input on stdin redirect to a temp file and print the file name.
 EOF
     # no options just help
     local opt OPTIND OPTARG
@@ -375,10 +376,10 @@ Examples:
  Replace the current word with itself reversed.
  $ bind -x '"\C-xt":rlword "rev <<< {0}"'
 
- Select a word already in the readline buffer.
- $ bind -x '"\C-xy":rlword "cz argv {1:}"
+ Replace the current word with one already in the readline buffer.
+ $ bind -x '"\C-xy":rlword "cz argv {1:}"'
 
- Fun with base64!
+ Have some fun with base64!
  $ bind -x '"\C-xb":rlword "base64 <<< {0}"'
  $ bind -x '"\C-xB":rlword "base64 -d <<< {0}"'
 EOF
@@ -430,15 +431,12 @@ EOF
     if ! str=$(eval -- "$cmd"); then
         return 3
     fi
-    # update the readline buffer
-    local before="${line:0:$beg}"
-    local after="${line:$end}"
     # wrap inserted words in spaces
     if ((ins)); then
         str=" ${str} "
     fi
     # update the readline buffer
-    READLINE_LINE="${before}${str}${after}"
+    READLINE_LINE="${line:0:$beg}${str}${line:$end}"
     READLINE_POINT=$((beg + ${#str}))
 }
 
@@ -739,7 +737,7 @@ EOF
             fi
             printf "%s\n" "$out"
             ;;
-        2) # template the command string
+        2) # template the command string and run it
             if ! cmd="$(nth -q "${tpl}" "${toks[@]}")"; then
                 printf "Failed to parse template.\n%s\n" "$tpl" >&2
                 return 4
@@ -754,7 +752,7 @@ EOF
             fi
             return $?
             ;;
-        3) # print templated string
+        3) # template the command string and print it
             if ! cmd="$(nth -p "${tpl}" "${toks[@]}")"; then
                 printf "Failed to parse template.\n%s\n" "$tpl" >&2
                 return 4
@@ -844,7 +842,7 @@ cz_anagram() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz anagram TEXT [WORDS]
 Select from anagrams of TEXT.
-Optionally limit to a maximim number of WORDS.
+Optionally limit to a maximum number of WORDS.
 EOF
     req an || return 5
     cz -i <(an -l "${2:-3}" "$1")
@@ -933,7 +931,7 @@ EOF
 
 cz_avconv_decoder() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz avconv encoder
+cz avconv decoder
 Select from decoders supported by avconv.
 EOF
     req avconv sed || return 5
@@ -950,7 +948,7 @@ EOF
 
 cz_bash_bind_key() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz bash bind function
+cz bash bind key
 Select from bash key bindings.
 EOF
     cz -d : -f 0 -i <({ bind -p; bind -X; bind -s; } | grep -v '^#')
@@ -967,7 +965,7 @@ EOF
 cz_bash_help() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz bash help
-Select from bash help topics.p
+Select from bash help topics.
 EOF
     mapfile -t m < <(help -s '*')
     cz -f 0 -e 'help {0}' -d : -i <(printf "%s\n" "${m[@]:2}")
@@ -1005,7 +1003,7 @@ while read -r n _; do
 cz compgen $n [PREFIX]
 Select from bash builtin $n completion.
 EOF
-cz -i <(compgen -A $n -- \"\$1\");\
+cz -i <(compgen -A $n -- \"\$1\" | sort);\
 }"
 done <<EOF
 alias
@@ -1239,7 +1237,7 @@ EOF
 
 cz_gcloud_bq_table() {
        { hep "$CZ_HELP" && return; } <<EOF
-cz gcloud bq dataset [PROJECT] [DATASET]
+cz gcloud bq table [PROJECT] [DATASET]
 Select a Google Bigquery table from DATASET in PROJECT and describe it in JSON.
 EOF
     req bq jq || return 5
@@ -1269,7 +1267,7 @@ EOF
 
 cz_gcloud_compute_instance() {
        { hep "$CZ_HELP" && return; } <<EOF
-cz gcloud compute image [PROJECT]
+cz gcloud compute instance [PROJECT]
 Select a Google cloud compute instance in PROJECT and describe it in JSON.
 EOF
     req gcloud jq || return 5
@@ -1296,7 +1294,7 @@ EOF
 
 cz_gcloud_dns_zone() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz gcloud compute image [PROJECT]
+cz gcloud dns zone [PROJECT]
 Select a Google cloud DNS zone in PROJECT and describe it in JSON.
 EOF
     req gcloud jq || return 5
@@ -1331,8 +1329,8 @@ EOF
 
 cz_gcloud_serviceaccount() {
        { hep "$CZ_HELP" && return; } <<EOF
-cz gcloud role [PROJECT]
-Select a Google cloud IAM role from PROJECT and describe it in JSON.
+cz gcloud serviceaccount [PROJECT]
+Select a Google cloud service account from PROJECT and describe it in JSON.
 EOF
     req gcloud jq || return 5
     local proj="${1:-$(cz -q gcloud project)}"
@@ -1348,7 +1346,7 @@ cz_git() {
 cz_git_status() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz git status [DIRECTORY]
-Select a changed file in the git repository in DIRECTORY.
+Select a modified file in the git repository in DIRECTORY.
 EOF
     req git grep || return 5
     local repo="${1:-.}"
@@ -1358,7 +1356,7 @@ EOF
 cz_git_branch() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz git branch [DIRECTORY]
-Select a branch in the git repository in DIRECTORY.
+Select a branch from the git repository in DIRECTORY.
 EOF
     req git sed || return 5
     local repo="${1:-.}"
@@ -1367,19 +1365,21 @@ EOF
 
 cz_git_commit() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz git commit [DIRECTORY]
-Select a branch in the git repository in DIRECTORY.
+cz git commit [DIRECTORY] [FILE]
+Select a commit from the history of the git repository in DIRECTORY.
+Given FILE, select a commit that modified that file.
 EOF
     req git || return 5
     local repo="${1:-.}"
+    local file="${2}"
     cz -f 0 -e "git -C $repo show {0}" \
-           -i <(git -C "$repo" log --pretty=format:'%h %cI %s (%ce)' --abbrev-commit)
+           -i <(git -C "$repo" log --pretty=format:'%h %cI %s (%ce)' --abbrev-commit -- "$file")
 }
 
 cz_git_file()  {
     { hep "$CZ_HELP" && return; } <<EOF
-cz git commit [DIRECTORY]
-Select a branch in the git repository in DIRECTORY.
+cz git file [DIRECTORY]
+Select a branch from the git repository in DIRECTORY.
 EOF
     req git grep || return 5
     local repo="${1:-.}"
@@ -1389,7 +1389,7 @@ EOF
 cz_git_remote() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz git remote [DIRECTORY]
-Select a remote in the git repository in DIRECTORY.
+Select a remote defined in the git repository in DIRECTORY.
 EOF
     req git || return 5
     local repo="${1:-.}"
@@ -1398,26 +1398,17 @@ EOF
 
 cz_git_tag() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz git remote [DIRECTORY]
-Select a remote in the git repository in DIRECTORY.
+cz git tag [DIRECTORY]
+Select a tag from the git repository in DIRECTORY.
 EOF
     req git || return 5
     local repo="${1:-.}"
     cz -f 0 -i <(git -C "$repo" tag)
 }
 
-cz_grep() {
-    { hep "$CZ_HELP" && return; } <<EOF
-cz grep [DIRECTORY]
-Select a remote in the git repository in DIRECTORY.
-EOF
-    req grep || return 5
-    cz -d : -f 0:1 -i <(grep -rn "$@" .)
-}
-
 cz_help() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz grep [DIRECTORY]
+cz help [DIRECTORY]
 Select a cz plugin and print its usage text.
 EOF
     cz -e 'cz -h {0}' -i <(cz -l)
@@ -1443,8 +1434,8 @@ EOF
 
 cz_hg_status() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz hg revision [DIRECTORY]
-Select a changed file in the hg repository in DIRECTORY.
+cz hg status [DIRECTORY]
+Select a modified file in the hg repository in DIRECTORY.
 EOF
     req hg || return 5
     cz -f 1 -i <(hg -R "${1:-.}" status)
@@ -1478,10 +1469,9 @@ EOF
     cz -f 2 -i <(ip -br -6 addr)
 }
 
-
 cz_ip_route4() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz ip addr6
+cz ip addr4
 Select an IPv4 route configured on the system.
 EOF
     req ip || return 5
@@ -1612,7 +1602,7 @@ EOF
     if ! f=$(acc "${1:-/dev/stdin}"); then
         return 4
     fi
-    cz -d : -f 0 < <(grep -n "$f")
+    cz -d : -f 0 < <(grep -n . "$f")
 }
 
 cz_locate() {
@@ -1727,6 +1717,16 @@ EOF
     cz -i <(CZ_MODE="" CZ_TEMPLATE="" cz -r mpd "$kind")
 }
 
+cz_mpd_seek() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz mpd seek
+Select a percentage of the current song then seek to that position.
+EOF
+    req mpc || return 5
+    cz -f 0 -e "mpc seek {0}" \
+       -i <(printf "%s%%\n" {100..0..5})
+}
+
 cz_mpd_track() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz mpd track
@@ -1777,7 +1777,7 @@ EOF
 cz_nss_protocol() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz nss protocol
-Select a protocol from the system protocol datanase.
+Select a protocol from the system protocol database.
 EOF
     req getent || return 5
     cz -f 1 -i <(getent protocols)
@@ -1786,7 +1786,7 @@ EOF
 cz_nss_service() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz nss service
-Select a service from the system service datanase.
+Select a service from the system service database.
 EOF
     req getent || return 5
     cz -f 1 -i <(getent services)
@@ -1798,9 +1798,9 @@ cz pass
 Select an entry from a pass directory and print its contents.
 EOF
     CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:dark blue:black:green}"
-    req pass find sed || return 5
+    req pass find sed head || return 5
     local pdir="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
-    cz -f 0 -e 'pass show {0}' \
+    cz -f 0 -e 'pass show {0} | head -n1' \
            -i <(find "$pdir" -type f -name '*.gpg' | sed "s#\.gpg##; s#$pdir##")
 }
 
@@ -2181,7 +2181,7 @@ EOF
 cz_xml_element() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz xml element [FILE] [< STREAM]
-Select a XML element by xpath string and print its contents.
+Select a XML element by xpath string and print it.
 EOF
     req xmlstarlet || return 5
     local f=""
@@ -2193,8 +2193,8 @@ EOF
 
 cz_xml_value() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz xml element [FILE] [< STREAM]
-Select a xclip buffer and print its contents.
+cz xml value [FILE] [< STREAM]
+Select a XML element by xpath string and extract its contents.
 EOF
     req xmlstarlet || return 5
     local f=""
@@ -2215,7 +2215,7 @@ EOF
 
 cz_xrandr_provider() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz xrandr monitor
+cz xrandr provider
 Select a X11 provider.
 EOF
     req xrandr sed || return 5
