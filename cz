@@ -482,10 +482,10 @@ OPTIONS
 TEMPLATES
  Substrings of TEMPLATE in the following formats are replaced with
   one or more fields from a selected line split by DELIM.
-     {X}     - argument X
-     {X:}    - arguments X through end of arguments
-     {X:Y}   - arguments X through X + Y
-     {X,Y,Z} - arguments X, Y, and Z
+     {X}     - field X
+     {X:}    - fields X through end of fields
+     {X:Y}   - fields X through X + Y
+     {X,Y,Z} - fields X, Y, and Z
  FIELDS consists of one of the above without the enclosing '{}'.
 
 ENVIRONMENT
@@ -542,7 +542,7 @@ EOF
             f) # fields to be extracted
                 fld="${fld:-${OPTARG}}"
                 if ! [[ "$fld" =~ ^([0-9]+(:[0-9]+?)?,?)*$ ]]; then
-                   printf "%s\n" "Invalid field template '%s'" "$fld" >&2
+                   printf "Invalid field template '%s'\n" "$fld" >&2
                    return 2
                 fi
                 run=1
