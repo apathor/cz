@@ -322,7 +322,7 @@ EOF
 rleval() {
     read -r -d '' use <<EOF
 rleval COMMAND...
-Evaluate given command and insert output into the bash readline buffer.
+Evaluate the given command and insert its output into the bash readline buffer.
 The command is templated with 'nth' using current line tokens. See 'nth -h'.
 This function is intended to be used with the bash builtin 'bind -x'.
 
@@ -334,18 +334,34 @@ Examples:
  $ bind -x '"\C-xf":rleval fortune"'
 
 EOF
-    # command is required
+    # no options just help
+    local opt OPTIND OPTARG
+    while getopts ":h" opt; do
+        case "$opt" in
+            *)
+                printf "%s\n" "$use" >&2
+                return 1
+                ;;
+        esac
+    done
+    # require readline context
+    local line="$READLINE_LINE" pt="$READLINE_POINT"
+    if [ -z "$pt" ]; then
+        printf "%s\n" "$use" >&2
+        return 2
+    fi
+    # require command argument
     if ! (($#)); then
         printf "%s\n" "$use" >&2
         return 1
     fi
     local args="$*"
     # record current readline point
-    local before="${READLINE_LINE:0:$READLINE_POINT}"
-    local after="${READLINE_LINE:$READLINE_POINT}"
+    local before="${line:0:$pt}"
+    local after="${line:$pt}"
     # tokenize current readline line
     local toks=()
-    read -r -a toks <<< "$READLINE_LINE"
+    read -r -a toks <<< "$line"
     # template command
     local cmd=""
     if ! cmd="$(nth -p "$args" "${toks[@]}")"; then
@@ -364,9 +380,10 @@ EOF
 rlword() {
         read -r -d '' use <<EOF
 rlword COMMAND...
-Evaluate given command and replace the word at cursor in the readline buffer.
-Command is templated with 'nth' using the word at point and current line tokens
- in that order. The word at cursor point is '{0}'. See 'nth -h'.
+Evaluate the given command and replace the word at point in the readline
+ buffer with its output.
+The command string is templated with 'nth' using the word at point and current line tokens
+ as arguments, in that order. The word at cursor point is '{0}'. See 'nth -h'.
 This function is intended to be used with the bash builtin 'bind -x'.
 
 Examples:
@@ -376,23 +393,38 @@ Examples:
  Replace the current word with itself reversed.
  $ bind -x '"\C-xt":rlword "rev <<< {0}"'
 
- Replace the current word with one already in the readline buffer.
+ Replace the current word with a word already in the readline buffer.
  $ bind -x '"\C-xy":rlword "cz argv {1:}"'
 
  Have some fun with base64!
  $ bind -x '"\C-xb":rlword "base64 <<< {0}"'
  $ bind -x '"\C-xB":rlword "base64 -d <<< {0}"'
 EOF
-    # command is required
+    # no options just help
+    local opt OPTIND OPTARG
+    while getopts ":h" opt; do
+        case "$opt" in
+            *)
+                printf "%s\n" "$use" >&2
+                return 1
+                ;;
+        esac
+    done
+    # require command argument
     if ! (($#)); then
         printf "%s\n" "$use" >&2
         return 1
     fi
+    # require readline context
+    local line="$READLINE_LINE" pt="$READLINE_POINT"
+    if [ -z "$pt" ]; then
+        printf "%s\n" "$use" >&2
+        return 2
+    fi
     # tokenize current readline line
     local toks=()
-    read -r -a toks <<< "$READLINE_LINE"
+    read -r -a toks <<< "$line"
     # determine word at point
-    local line="$READLINE_LINE" pt="$READLINE_POINT"
     local beg=0 end=0 ins=0 word=""
     if [[ "${line:$pt:1}" == ' ' ]]; then
         # insert a word if point is on a space
@@ -985,7 +1017,8 @@ cz bash history
 Select from bash command history.
 EOF
     req sort || return 5
-    cz -f 3: -e "{3:}" -i <(HISTTIMEFORMAT="%F %T " history | sort -r -n)
+    cz -f 3: -e "{3:}" \
+       -i <(HISTTIMEFORMAT="%F %T " history | sort -r -n)
 }
 
 cz_bool() {
@@ -2122,7 +2155,7 @@ EOF
     if ! f=$(acc "${1:-/dev/stdin}"); then
         return 4
     fi
-    cz < <(grep -Eo '([[:alnum:]])+' "$f" | sort -u)
+    cz < <(grep -Eo '([[:alnum:]-_])+' "$f" | sort -u)
 }
 
 cz_x11_rgb() {

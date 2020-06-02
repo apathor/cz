@@ -107,7 +107,7 @@ Bash users can source cz to load two functions useful for key bindings:
 Add the following to ~/.bashrc for keys bindings that provide an interface to all plugins:
 
 ```sh
-# source cz
+# source cz to enable completion and extra functions
 . cz
 
 # use only terminal line selection tools in the shell
@@ -152,6 +152,9 @@ bind -x '"\C-xg":rleval "cz -q git status"'
 
 # insert selected file held by the git repository in the current directory
 bind -x '"\C-xG":rleval "cz -q git file"'
+
+# ssh into the selected host
+bind -x '"\C-xh":stty sane; cz -r ssh; stty sane'
 
 # play selected track from the mpd playlist
 bind -x '"\C-xm":cz -r mpd track'
