@@ -3,7 +3,7 @@
 Cz is a bash script that provides a common interface to various interactive line selection tools.
 It also acts as an extensible framework for small selection based applications.
 
-Cz comes with 150+ plugins for common use cases. Out of the box you can select from:
+Cz comes with 160+ plugins for common use cases. Out of the box you can select from:
 
  - files and directories
  - git branches
@@ -95,17 +95,18 @@ ENVIRONMENT
 
 ```
 
-## Key Bindings
+## Configuration
 
 To get the most out of cz users should consider binding shell and window manager keys.
+
+### Bash
 
 Bash users can source cz to load two functions useful for key bindings:
 
  - rleval : insert the output of a command at cursor point in the readline buffer
  - rlword : replace the word under the cursor in the readline buffer with the output of a command
 
-Add the following to ~/.bashrc for keys bindings that provide an interface to all plugins:
-
+Add the following to ~/.bashrc to configure key bindings that provide an interface to all plugins:
 ```sh
 # source cz to enable completion and extra functions
 . cz
@@ -127,7 +128,7 @@ bind -x '"\C-xZ":rleval "cz meta -s"'
 
 ```
 
-Here are some other examples:
+Here are some narrower examples:
 ```sh
 # insert selected path to file under current directory
 bind -x '"\C-xf":rleval "cz find file"'
@@ -158,6 +159,35 @@ bind -x '"\C-xh":stty sane; cz -r ssh; stty sane'
 
 # play selected track from the mpd playlist
 bind -x '"\C-xm":cz -r mpd track'
+```
+
+### i3 Window Manager
+
+```
+# i3 specific plugins
+bindsym $mod+space        exec i3-input -F 'mark %s' 1 -P 'Mark: '
+bindsym $mod+Shift+space  exec "cz i3 mark"
+bindsym $mod+Tab          exec "cz i3 window"
+bindsym $mod+Shift+Tab    exec "cz i3 workspace"
+
+# put cz output for any plugin onto a clipboard
+bindsym $mod+z            exec "cz meta -r | cz xclip in"
+bindsym $mod+Shift+z      exec "cz meta -s | cz xclip in"
+bindsym $mod+x            exec "cz meta -q | cz xclip in"
+bindsym $mod+Shift+x      exec "cz meta -p | cz xclip in"
+
+# run selected command
+bindsym $mod+c            exec "cz command"
+
+# pipe the contents of a clipboard through selected command
+bindsym $mod+Shift+c      exec "cz xclip out | cz command | cz xclip in"
+
+# browse to selected URI extracted from a clipboard
+bindsym $mod+o            exec "cz xclip out | cz -r uri"
+
+# put a password from your password manager onto a clipboard
+bindsym $mod+p            exec "cz pass | cz xclip in"
+
 ```
 
 ## Plugins

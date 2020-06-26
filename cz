@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2031
 #
 # cz - Line selection abstraction (plus utilities!)
 # (C) 2020 by Mike Lalumiere
@@ -46,7 +45,7 @@ EOF
     fi
     # write out the file name
     printf "%s\n" "$out"
-};
+}
 
 chuz() {
     # usage
@@ -378,7 +377,7 @@ EOF
 }
 
 rlword() {
-        read -r -d '' use <<EOF
+    read -r -d '' use <<EOF
 rlword COMMAND...
 Evaluate the given command and replace the word at point in the readline
  buffer with its output.
@@ -530,20 +529,21 @@ TOOLS
  Supported line selection tools are dmenu, fzf, iselect, pick,
   pipedial, rofi, sentaku, slmenu, and vis-menu.
 EOF
-    # examples
-    read -r -d '' hows <<EOF
- $ printf "%s\n" foo bar qux | cz
- $ find . -name '*.yml' -print0 | cz -0
- $ cz -f 0,5 -d : < /etc/passwd
- $ cd \$(cz find dir)
- $ cz \$(cz -l | cz)
- $ cz -e 'dig {1} MX' compgen hostname
- $ cz xclip out | cz -e 'firefox {0}' uri
- $ cz -e 'cz jq {0}' locate *.json
- $ cz -e 'cz -q find file {1}' apparix
- $ cz -e 'rev <<< "{0:}"' -i <(printf "%s\n" '$HOST' '; false' '\$(fortune)')
+    # provide random examples
+    local hows=() des="" exp=""
+    mapfile -t hows <<EOF
+Pick from lines on stdin.:$ printf "%s\n" foo bar qux | cz
+Accept null delimited input.:$ find . -name '*.yml' -print0 | cz -0
+Extract useful fields from input data.:$ cz -f 0,5 -d : < /etc/passwd
+Jump to any descendant directory.:$ cd \$(cz find dir)
+Add selection to common commands.:$ cz -e 'dig {0} MX +short' compgen hostname
+Grab a URL from a paste buffer and open it in a browser.:$ cz xclip out | cz -e 'firefox {0}' uri
+Compose plugins to get the contents of any element from any JSON file.:$ cz -e 'cz jq {0}' locate *.json
+Compose plugins to get any file under an apparix directory.:$ cz -e 'cz -q find file {1}' apparix
+Safely handle input strings containing shell characters.:$ cz -e 'rev <<< "{0:}"' -i <(printf "%s\n" '\$USER' '; false' '\$(fortune)')
 EOF
-    printf "%s\n" "${hows[$(( RANDOM % ${#hows[@]} ))]}" >/dev/null
+    IFS=: read -r des exp <<< "${hows[$(( RANDOM % ${#hows[@]} ))]}"
+    use+=$(printf "\n\nEXAMPLE\n %s\n %s\n" "$des" "$exp")
     # here are the supporterd line selection tools
     local gbins=() tbins=()
     read -r -a gbins <<< "${CZ_BINS_GUI:-dmenu rofi}"
@@ -574,8 +574,8 @@ EOF
             f) # fields to be extracted
                 fld="${fld:-${OPTARG}}"
                 if ! [[ "$fld" =~ ^([0-9]+(:[0-9]+?)?,?)*$ ]]; then
-                   printf "Invalid field template '%s'\n" "$fld" >&2
-                   return 2
+                    printf "Invalid field template '%s'\n" "$fld" >&2
+                    return 2
                 fi
                 run=1
                 ;;
@@ -637,10 +637,9 @@ EOF
             y) # try to use a terminal tool for line selection
                 gfx=0
                 ;;
-            z) # force some specific tool
+            z) # use a specific line selection tool
                 app="$OPTARG"
-                # shellcheck disable=SC2076
-                if ! [[ "${gbins[*]} ${tbins[*]}" =~ "${app}" ]]; then
+                if ! [[ " ${gbins[*]} ${tbins[*]} " == *" ${app} "* ]]; then
                     printf "Unknown tool %s\n" "$app" >&2
                     return 2
                 fi
@@ -820,7 +819,7 @@ function _cz() {
             # concat plugin prefix
             base="${base}_${word}"
             base="${base##_}"
-       fi
+        fi
     done
     # current and previous words are given
     local prev="${3}"
@@ -1014,7 +1013,7 @@ EOF
 cz_bash_history() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz bash history
-Select from bash command history.
+Select a command from bash history then run it.
 EOF
     req sort || return 5
     cz -f 3: -e "{3:}" \
@@ -1163,9 +1162,9 @@ EOF
     req figlet || return 5
     local fdir="${FIGLET_FONTDIR:-/usr/share/figlet}"
     cz -f 0 -e "figlet -t -d $fdir -f {0}" \
-           -i <(for f in "$fdir"/*f; do
-                    printf "%s %s\n" "${f##*/}" "${f}"
-                done)
+       -i <(for f in "$fdir"/*f; do
+                printf "%s %s\n" "${f##*/}" "${f}"
+            done)
 }
 
 cz_find_file() {
@@ -1229,7 +1228,7 @@ EOF
 }
 
 cz_gcloud_auth() {
-       { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud auth
 Select an available google cloud identity.
 EOF
@@ -1238,7 +1237,7 @@ EOF
 }
 
 cz_gcloud_bucket() {
-       { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud bucket
 Select a google cloud storage bucket.
 EOF
@@ -1247,7 +1246,7 @@ EOF
 }
 
 cz_gcloud_bucket_file() {
-       { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud bucket file [BUCKET]
 Select a file from a google cloud storage bucket.
 EOF
@@ -1258,7 +1257,7 @@ EOF
 }
 
 cz_gcloud_bq_dataset() {
-       { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud bq dataset [PROJECT]
 Select a Google Bigquery dataset from PROJECT and describe it in JSON.
 EOF
@@ -1269,7 +1268,7 @@ EOF
 }
 
 cz_gcloud_bq_table() {
-       { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud bq table [PROJECT] [DATASET]
 Select a Google Bigquery table from DATASET in PROJECT and describe it in JSON.
 EOF
@@ -1286,20 +1285,34 @@ EOF
                      jq -r '.[] | [.id, (.tableReference | (.tableId, .datasetId, .projectId)), .type] | @tsv')
 }
 
+cz_gcloud_compute_disk() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz gcloud compute disk [PROJECT]
+Select a Google cloud compute disk in PROJECT and describe it in JSON.
+EOF
+    req gcloud jq || return 5
+    local proj="${1:-$(cz -q gcloud project)}"
+    if [ -z "$proj" ]; then return 2; fi
+    cz -f 1 -e "gcloud --project='$proj' --format=json compute disks describe --zone {2} {1}" \
+       -i <(gcloud --project="$proj" --format=json compute disks list \
+                | jq -r '.[] | [.id, .name, .zone, .sizeGb, .status] | @tsv')
+}
+
 cz_gcloud_compute_image() {
-       { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud compute image [PROJECT]
 Select a Google cloud compute image in PROJECT and describe it in JSON.
 EOF
     req gcloud jq || return 5
     local proj="${1:-$(cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
-    cz -f 1 -e "gcloud --project $proj --format json compute --format json describe {0} " \
-       -i <(gcloud --project "$proj" --format json compute images list | jq -r '.[] | [.name, .creationTimestamp ] | @tsv')
+    cz -f 1 -e "gcloud --project $proj --format json compute images describe {0} " \
+       -i <(gcloud --project "$proj" --format json compute images list | \
+                jq -r '.[] | [.name, .creationTimestamp ] | @tsv')
 }
 
 cz_gcloud_compute_instance() {
-       { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud compute instance [PROJECT]
 Select a Google cloud compute instance in PROJECT and describe it in JSON.
 EOF
@@ -1312,7 +1325,7 @@ EOF
 }
 
 cz_gcloud_dns_record() {
-       { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud compute image [PROJECT] [ZONE]
 Select a Google cloud DNS record in PROJECT and describe it in JSON.
 EOF
@@ -1338,6 +1351,64 @@ EOF
                 jq -r '.[] | [.name, .dnsName, .visibility, .description] | @tsv')
 }
 
+cz_gcloud_organization() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz gcloud organization
+Select a Google cloud organization and describe it in JSON.
+EOF
+    req gcloud jq || return 5
+    cz -f 1 -e 'gcloud organizations describe {1} --format=json' \
+       -i <(gcloud organizations list  --format=json | \
+                jq -r '.[0] | [.creationTime, .name, .displayName, .lifecycleState ] | @tsv')
+}
+
+cz_gcloud_permission() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz gcloud permission [RESOURCE]
+Select a Google cloud permission and describe it in JSON.
+If a resource argument is given only list applicable permissions.
+EOF
+    req gcloud jq || return 5
+    local url="${1}"
+    if [ -z "$url" ]; then
+        local org=""
+        if org=$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud organization); then
+            url="//cloudresourcemanager.googleapis.com/$org"
+        else
+            return 2
+        fi
+    fi
+    cz -f 0 \
+       -i <(gcloud iam list-testable-permissions "$url" --format=json | \
+                jq -r '.[] | [.name, .stage, .title // "-"] | @tsv')
+}
+
+cz_gcloud_pubsub_subscription() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz gcloud pubsub subscription [PROJECT]
+Select a Google pubsub subscription in PROJECT and describe it in JSON.
+EOF
+    req gcloud jq || return 5
+    local proj="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud project)}"
+    if [ -z "$proj" ]; then return 2; fi
+    cz -f 0 -e "gcloud --project $proj --format json pubsub subscription describe {0}" \
+       -i <(gcloud pubsub subscriptions list --format=json | \
+                jq -r '.[] | [(.name | split("/") | .[-1]), (.topic | split("/") | .[-1]) ] | @tsv')
+}
+
+cz_gcloud_pubsub_topic() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz gcloud pubsub topic [PROJECT]
+Select a Google pubsub topic in PROJECT and describe it in JSON.
+EOF
+    req gcloud jq || return 5
+    local proj="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud project)}"
+    if [ -z "$proj" ]; then return 2; fi
+    cz -f 0 -e "gcloud --project $proj --format json pubsub topic describe {0}" \
+       -i <(gcloud pubsub topics list --format=json | \
+                jq -r '.[] | [.name | split("/") | .[-1] ] | @tsv')
+}
+
 cz_gcloud_project() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud project
@@ -1357,11 +1428,12 @@ EOF
     local proj="${1:-$(cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project $proj --format json iam roles describe {0}" \
-       -i <(gcloud --project "$proj" --format json iam roles list | jq -r '.[] | [.name, .description] | @tsv')
+       -i <(gcloud --project "$proj" --format json iam roles list | \
+                jq -r '.[] | [.name, .description] | @tsv')
 }
 
 cz_gcloud_serviceaccount() {
-       { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud serviceaccount [PROJECT]
 Select a Google cloud service account from PROJECT and describe it in JSON.
 EOF
@@ -1369,7 +1441,8 @@ EOF
     local proj="${1:-$(cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project $proj --format json iam service-accounts describe {0}" \
-       -i <(gcloud --project "$proj" --format json iam service-accounts list | jq -r '.[] | [.email, .displayName, .email] | @tsv')
+       -i <(gcloud --project "$proj" --format json iam service-accounts list | \
+                jq -r '.[] | [.email, .displayName, .email] | @tsv')
 }
 
 cz_git() {
@@ -1406,7 +1479,7 @@ EOF
     local repo="${1:-.}"
     local file="${2}"
     cz -f 0 -e "git -C $repo show {0}" \
-           -i <(git -C "$repo" log --pretty=format:'%h %cI %s (%ce)' --abbrev-commit -- "$file")
+       -i <(git -C "$repo" log --pretty=format:'%h %cI %s (%ce)' --abbrev-commit -- "$file")
 }
 
 cz_git_file()  {
@@ -1441,7 +1514,7 @@ EOF
 
 cz_help() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz help [DIRECTORY]
+cz help
 Select a cz plugin and print its usage text.
 EOF
     cz -e 'cz -h {0}' -i <(cz -l)
@@ -1472,6 +1545,61 @@ Select a modified file in the hg repository in DIRECTORY.
 EOF
     req hg || return 5
     cz -f 1 -i <(hg -R "${1:-.}" status)
+}
+
+cz_i3_mark() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz i3 mark
+Select an i3 window mark then move focus to the marked window.
+EOF
+    req i3-msg jq || return 5
+    cz -f 0 -e 'i3-msg "[con_mark={0}] focus"' \
+       -i <(i3-msg -t get_marks | jq -r '.[]')
+}
+
+cz_i3_output() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz i3 output
+Select an i3 output device.
+EOF
+    req i3-msg jq || return 5
+    read -r -d '' filter <<EOF
+.[] | select(.active)
+    | [ .name,
+        "\(.rect.width)x\(.rect.height)",
+        "\(.rect.x),\(.rect.y)",
+        .current_workspace // "-"
+      ] | join(" ")
+EOF
+    cz -f 0 \
+       -i <(i3-msg -t get_outputs | jq -r "$filter")
+}
+
+cz_i3_window() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz i3 window
+Select a i3 window then move focus to that window.
+EOF
+    req i3-msg jq || return 5
+    read -r -d '' filter <<EOF
+.. | select(.id? and .type == "con" and .nodes == [])
+   | [ (.id | tostring), .output, .name] | join(" ")
+EOF
+    cz -f 0 -e 'i3-msg "[con_id={0}] focus"' \
+       -i <(i3-msg -t get_tree | jq -r "$filter")
+}
+
+cz_i3_workspace() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz i3 workspace
+Select an i3 workspace then switch to that workspace.
+EOF
+    req i3-msg jq || return 5
+    read -r -d '' filter <<EOF
+.[] | [ .num, .name, .output, if .urgent then "*" else "" end ] | join(" ")
+EOF
+    cz -f 0 -e 'i3-msg workspace {0}' \
+       -i <(i3-msg -t get_workspaces | jq -r "$filter")
 }
 
 cz_info()  {
@@ -1670,7 +1798,7 @@ EOF
 cz_man() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz man [QUERY]
-Select a manual page matching QUERY and open it for reading.
+Select a manual page matching the given query and open it for reading.
 EOF
     CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:white:yellow:black}"
     req man sed || return 5
@@ -1680,8 +1808,8 @@ EOF
 cz_meta() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz meta [MODE-OPTION] [PREFIX]
-Select a cz plugin starting with prefix and run it in the given mode.
-Mode options are -p -q -r -s. The default mode is -p.
+Select a cz plugin and run it in the given mode.
+The mode options are -p -q -r -s. The default mode is -p.
 This plugin is best used bound to a key, providing a quick
  interface to every other cz plugin.
 Examples:
@@ -1768,7 +1896,7 @@ EOF
     CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:blue:blue:white}"
     req mpc || return 5
     cz -f 0 -e "mpc play {0}" \
-           -i <(mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
+       -i <(mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
 }
 
 cz_nss_group() {
@@ -1834,7 +1962,7 @@ EOF
     req pass find sed head || return 5
     local pdir="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
     cz -f 0 -e 'pass show {0} | head -n1' \
-           -i <(find "$pdir" -type f -name '*.gpg' | sed "s#\.gpg##; s#$pdir##")
+       -i <(find "$pdir" -type f -name '*.gpg' | sed "s#\.gpg##; s#$pdir##")
 }
 
 cz_pci() {
@@ -1950,11 +2078,11 @@ cz_ssh() {
 
 cz_ssh_host() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz ssh host
+cz ssh host [COMMAND]
 Select a host from SSH configuration then connect to that host.
 EOF
     req ssh sed || return 5
-    cz -f 0 -e 'ssh -t {0}' -i <(sed -E -n 's/^\s*Host\s+(.*)\s*/\1/ip' < "$HOME/.ssh/config")
+    cz -f 0 -e "ssh -t {0} -- $*" -i <(sed -E -n 's/^\s*Host\s+(.*)\s*/\1/ip' < "$HOME/.ssh/config")
 }
 
 cz_ssh_key() {
