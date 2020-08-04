@@ -1,20 +1,22 @@
 ![cz example gif](/web/cz-ex1.gif)
 
-Cz is a bash script that provides a common interface to various interactive line selection tools.
-It also acts as an extensible framework for small selection based applications.
+Cz provides a common interface to interactive line selection tools.
 
-Cz comes with 160+ plugins for common use cases. Out of the box you can select from:
+Cz also acts as an extensible framework for line selection based applications.
 
+Included are 160 plugins for common use cases. Out of the box you can select from:
+
+ - everything from bash's built-in completion
  - files and directories
  - git branches
  - unicode characters
  - mpd tracks
- - everything from bash's built-in completion
  - pass(1) passwords
  - man pages and other documentation sources
- - JSON/XML elements
+ - elements from JSON/YAML/XML documents
  - docker images
  - system processes
+ - i3 window manager components
 
 And a whole lot more!
 
@@ -185,7 +187,7 @@ bindsym $mod+Shift+c      exec "cz xclip out | cz command | cz xclip in"
 # browse to selected URI extracted from a clipboard
 bindsym $mod+o            exec "cz xclip out | cz -r uri"
 
-# put a password from your password manager onto a clipboard
+# put a password from a password manager onto a clipboard
 bindsym $mod+p            exec "cz pass | cz xclip in"
 
 ```
@@ -205,7 +207,7 @@ A function like the following can be defined in your bash configuration:
 
 ```sh
 cz_fruit() {
-  if [ -n "$CZ_HOME" ]; then
+  if [ -n "$CZ_HELP" ]; then
     printf "cz fruit\nSelect a fruit\n"
     return 0
   fi
@@ -224,7 +226,7 @@ Use your favorite language! Put the following in a file called 'cz_twos' on your
 use strict;
 use warnings;
 
-if($ENV{"CZ_HOME"}) {
+if($ENV{"CZ_HELP"}) {
   print "cz twos\nSelect from powers of two.";
   return 0;
 }

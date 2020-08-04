@@ -8,6 +8,7 @@
 # TODO Completion hook function?
 # TODO Option to specify prompt (see 'dmenu -p foo')
 # TODO AWS/s3 plugins
+# TODO Clean up tmpfiles
 # TODO I8n?
 
 if (("${BASH_VERSINFO[0]}" < 4)); then
@@ -258,7 +259,7 @@ EOF
                         printf "Invalid field string '%s'\n" "$fld" >&2
                         return 3
                     fi
-                    # get matched groups - field and range
+                    # get regex match groups - field and range
                     local sel len
                     sel="${BASH_REMATCH[1]}"
                     len="${BASH_REMATCH[3]:-${BASH_REMATCH[2]}}"
@@ -477,7 +478,7 @@ EOF
 
 cz() {
     # version
-    local ver="0.1"
+    local ver="0.2"
     # usage
     local hows="" use=""
     read -r -d '' use <<EOF
@@ -490,6 +491,7 @@ Run a plugin to select something application specific.
 OPTIONS
  These options print some information and exit:
   -h : help     : Print this help text or help text for plugin.
+  -H : example  : Print a bunch of example commands.
   -k : tools    : List supported line selection tools.
   -l : plugins  : List detected plugins.
   -v : version  : Print version string.
@@ -529,19 +531,23 @@ TOOLS
  Supported line selection tools are dmenu, fzf, iselect, pick,
   pipedial, rofi, sentaku, slmenu, and vis-menu.
 EOF
-    # provide random examples
-    local hows=() des="" exp=""
+    # example commands
+    local hows=()
     mapfile -t hows <<EOF
 Pick from lines on stdin.:$ printf "%s\n" foo bar qux | cz
-Accept null delimited input.:$ find . -name '*.yml' -print0 | cz -0
+Accept null delimited input lines.:$ find . -name '*.yml' -print0 | cz -0
 Extract useful fields from input data.:$ cz -f 0,5 -d : < /etc/passwd
+Safely handle input strings containing shell characters.:$ cz -e 'rev <<< "{0:}"' -i <(printf "%s\n" '\$USER' '; false' '\$(fortune)')
+Add selection to common commands.:$ cz -e 'dig {0} AAAA +short' compgen hostname
+Easily define plugins as bash functions.:$ cz_whois() { cz -e 'whois {0}' -f 0 compgen hostname; }; cz whois
+Select a password and put it on an xclip clipboard.:$ cz pass | cz xclip in
 Jump to any descendant directory.:$ cd \$(cz find dir)
-Add selection to common commands.:$ cz -e 'dig {0} MX +short' compgen hostname
 Grab a URL from a paste buffer and open it in a browser.:$ cz xclip out | cz -e 'firefox {0}' uri
 Compose plugins to get the contents of any element from any JSON file.:$ cz -e 'cz jq {0}' locate *.json
-Compose plugins to get any file under an apparix directory.:$ cz -e 'cz -q find file {1}' apparix
-Safely handle input strings containing shell characters.:$ cz -e 'rev <<< "{0:}"' -i <(printf "%s\n" '\$USER' '; false' '\$(fortune)')
+Compose plugins to get any file under an apparix bookmarked directory.:$ cz -e 'cz -q find file {1}' apparix
 EOF
+    # append one random example to usage text
+    local des="" exp=""
     IFS=: read -r des exp <<< "${hows[$(( RANDOM % ${#hows[@]} ))]}"
     use+=$(printf "\n\nEXAMPLE\n %s\n %s\n" "$des" "$exp")
     # here are the supporterd line selection tools
@@ -562,7 +568,7 @@ EOF
     local dlm="$IFS"           # string delimeter to split selected line
     local help="${CZ_HELP}"    # string indicator for help requested
     local opt OPTIND OPTARG
-    while getopts ":d:e:f:hi:lkpqrsvxyz:0" opt; do
+    while getopts ":d:e:f:hHi:lkpqrsvxyz:0" opt; do
         case "$opt" in
             d) # delimeter
                 dlm="$OPTARG"
@@ -579,8 +585,16 @@ EOF
                 fi
                 run=1
                 ;;
-            h) # user needs assistance
+            h) # set help mode
                 help="YES PLEASE"
+                ;;
+            H) # list usage examples
+                local ind
+                for ((ind=0; ind < "${#hows[@]}"; ind++)); do
+                    IFS=: read -r des exp <<< "${hows[$ind]}"
+                    printf "%s\n%s\n\n" "$des" "$exp"
+                done
+                return 0
                 ;;
             i) # input file from which to read selections
                 inp="$OPTARG"
@@ -768,12 +782,12 @@ EOF
             fi
             printf "%s\n" "$out"
             ;;
-        2) # template the command string and run it
+        2) # render the command string template then run it
             if ! cmd="$(nth -q "${tpl}" "${toks[@]}")"; then
                 printf "Failed to parse template.\n%s\n" "$tpl" >&2
                 return 4
             fi
-            # eval the template string maybe passing buffered input
+            # eval the command string maybe passing buffered input
             if [ -n "${stdin[*]}" ]; then
                 CZ_MODE="" CZ_FIELDS="" CZ_TEMPLATE="" CZ_GUI="${gfx}:${app}" \
                        eval "$cmd" < <(printf "%s\n" "${stdin[@]}")
@@ -824,6 +838,12 @@ function _cz() {
     # current and previous words are given
     local prev="${3}"
     local curr="${2}"
+    # maybe the previous word is a redirection
+    local rd='^[&12]?[><]'
+    if [[ "$prev" =~ $rd ]]; then
+        COMPREPLY=($(compgen -f -- "$curr"))
+        return
+    fi
     # maybe the previous word is an option that expects an argument
     if [[ "$prev" =~ ^-[defiz]$ ]]; then
         case "$prev" in
@@ -1005,9 +1025,13 @@ EOF
 cz_bash_job() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz bash job
-Select from bash background jobs.
+Select a bash background job and move it to the foreground.
 EOF
-    cz -f 1 -e 'fg {1}' -i <(jobs -l)
+    cz -d $'\t' -f 1 -e 'fg {1}' -i <(
+        while read -r s p q c; do
+            [[ "$s" =~ ^\[([0-9]+)\]([+-])?$ ]]
+            printf "%s\t%s\t%s\t%s\t%s\n" "${BASH_REMATCH[2]:-.}" "%${BASH_REMATCH[1]}" "$p" "$q" "$c"
+        done < <(jobs -l))
 }
 
 cz_bash_history() {
@@ -1477,7 +1501,7 @@ Given FILE, select a commit that modified that file.
 EOF
     req git || return 5
     local repo="${1:-.}"
-    local file="${2}"
+    local file="${2:-.}"
     cz -f 0 -e "git -C $repo show {0}" \
        -i <(git -C "$repo" log --pretty=format:'%h %cI %s (%ce)' --abbrev-commit -- "$file")
 }
@@ -1596,7 +1620,7 @@ Select an i3 workspace then switch to that workspace.
 EOF
     req i3-msg jq || return 5
     read -r -d '' filter <<EOF
-.[] | [ .num, .name, .output, if .urgent then "*" else "" end ] | join(" ")
+.[] | [ (.num | tostring), .name, .output, if .urgent then "*" else "" end ] | join(" ")
 EOF
     cz -f 0 -e 'i3-msg workspace {0}' \
        -i <(i3-msg -t get_workspaces | jq -r "$filter")
@@ -1701,10 +1725,34 @@ Select from jq path strings for each element of the input file or stream
 EOF
     req jq || return 5
     local f=""
-    if ! f=$(acc "${1:-/dev/stdin}"); then
+    if ! f=$(acc "$1"); then
         return 4
     fi
-    cz -e "jq -r {0} $f" < <(jq -r '"." + (path(..) | map("[\(tojson)]") | join(""))' "$f")
+    cz -f 0 -e "jq -r {0} $f" < <(jq -r '"." + (path(..) | map("[\(tojson)]") | join(""))' "$f")
+}
+
+cz_jq_json_scalar() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz jq json scalar [JSON-FILE] [< JSON-STREAM]
+Select from jq path strings for each scalar within the input file or stream
+ then use that path to extract the JSON element.
+EOF
+    req jq || return 5
+    local f=""
+    if ! f=$(acc "$1"); then
+        return 4
+    fi
+    read -r -d '' filter <<EOF
+. as \$r
+| path(..) | . as \$p
+| \$r | getpath(\$p) as \$v
+| select(\$v | scalars) |
+[
+ ("." + (\$p | map("[\\(tojson)]") | join(""))),
+ (\$v)
+] | @tsv
+EOF
+    cz -f 0 -d $'\t' -e "jq -r {0} $f" < <(jq -r "$filter" "$f")
 }
 
 cz_jq_yaml() {
@@ -1715,7 +1763,7 @@ Select from jq path strings for each element of the input file or stream
 EOF
     req jq perl || return 5
     local f=""
-    if ! f=$(acc "${1:-/dev/stdin}"); then
+    if ! f=$(acc "$1"); then
         return 4
     fi
     local y
@@ -1760,7 +1808,7 @@ Select a line number from the input file or stream.
 EOF
     req grep || return 5
     local f=""
-    if ! f=$(acc "${1:-/dev/stdin}"); then
+    if ! f=$(acc "$1"); then
         return 4
     fi
     cz -d : -f 0 < <(grep -n . "$f")
@@ -1952,6 +2000,17 @@ EOF
     req getent || return 5
     cz -f 1 -i <(getent services)
 }
+
+cz_ruby_gem() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz ruby gem
+Select an installed ruby gem package by name.
+EOF
+
+    req gem ruby || return 5
+    cz -f 0 -i <(gem query --local)
+}
+
 
 cz_pass() {
     { hep "$CZ_HELP" && return; } <<EOF
@@ -2252,7 +2311,7 @@ Select a URI extracted from the input text.
 EOF
     CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:black:black:green}"
     local f=""
-    if ! f=$(acc "${1:-/dev/stdin}"); then
+    if ! f=$(acc "$1"); then
         return 4
     fi
     if type urifind &>/dev/null; then
@@ -2280,7 +2339,7 @@ Select a word from the given file or stream.
 EOF
     req grep sort || return 5
     local f=""
-    if ! f=$(acc "${1:-/dev/stdin}"); then
+    if ! f=$(acc "$1"); then
         return 4
     fi
     cz < <(grep -Eo '([[:alnum:]-_])+' "$f" | sort -u)
@@ -2346,10 +2405,10 @@ Select a XML element by xpath string and print it.
 EOF
     req xmlstarlet || return 5
     local f=""
-    if ! f=$(acc "${1:-/dev/stdin}"); then
+    if ! f=$(acc "$1"); then
         return 4
     fi
-    cz -f 0 -e "xmlstarlet sel -B -t -c {0} $f" < <(xmlstarlet el -v "$f")
+    cz -f 0 -e "xmlstarlet sel -B -t -c {0:} $f" < <(xmlstarlet el "$f")
 }
 
 cz_xml_value() {
@@ -2359,10 +2418,10 @@ Select a XML element by xpath string and extract its contents.
 EOF
     req xmlstarlet || return 5
     local f=""
-    if ! f=$(acc "${1:-/dev/stdin}"); then
+    if ! f=$(acc "${1}"); then
         return 4
     fi
-    cz -f 0 -e "xmlstarlet sel -B -t -v {0} $f" < <(xmlstarlet el -v "$f")
+    cz -f 0 -e "xmlstarlet sel -B -t -v {0:} $f" < <(xmlstarlet el "$f")
 }
 
 cz_xrandr_monitor() {
