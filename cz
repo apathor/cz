@@ -3,50 +3,16 @@
 # cz - Line selection abstraction (plus utilities!)
 # (C) 2020 by Mike Lalumiere
 #
-# TODO Optional caching of input text
-# TODO Establish plugin exit status convention
 # TODO Completion hook function?
 # TODO Option to specify prompt (see 'dmenu -p foo')
 # TODO AWS/s3 plugins
-# TODO Clean up tmpfiles
 # TODO I8n?
+# TODO Better built-in line selector
 
 if (("${BASH_VERSINFO[0]}" < 4)); then
     printf "%s\n" "$0 requires bash 4!" >&2
     return 255
 fi
-
-acc() {
-    # usage
-    read -r -d '' use <<EOF
-acc [FILE] < INPUT > PATH
-Given a file path check that the path is readable and print the file name.
-Given input on stdin redirect to a temp file and print the file name.
-EOF
-    # no options just help
-    local opt OPTIND OPTARG
-    while getopts ":h" opt; do
-        case "$opt" in
-            *) printf "%s\n" "$use" >&2
-               return 1
-               ;;
-        esac
-    done
-    shift $((OPTIND - 1))
-    # accept arguments
-    local file="${1:-/dev/stdin}"
-    local out="$file"
-    if ! [ -r "$file" ]; then
-        return 1
-    fi
-    # capture pipe in a temporary file
-    if [ "$file" == "/dev/stdin" ]; then
-        out=$(printf "/tmp/acc.%s.%(%s)T\n" "$RANDOM" "-1")
-        printf "%s\n" "$(< "$file")" > "$out"
-    fi
-    # write out the file name
-    printf "%s\n" "$out"
-}
 
 chuz() {
     # usage
@@ -121,37 +87,174 @@ EOF
     fi
 }
 
-req() {
+hold() {
+    # usage
     read -r -d '' use <<EOF
-req COMMAND/FILE [...]
-Require given files and commands.
-Succeed iff each given argument is a known command or readable file.
-This is a utility function to aid in defining program requirements.
-Example:
- $ req awk /etc/passwd || return 5
+hold [OPTIONS] [MODE] [ARGUMENTS]
+Cache input in a temporary file.
+
+MODE
+ -e         : arguments are evaluated as a command and the output is cached
+ -f         : arguments are considered a list of files and their content is cached
+ -g         : ignore arguments and only retreive cached content
+
+OPTIONS
+ -n NAME    : Set cache prefix to NAME. Defaults to the name of the caller function.
+ -p         : Print cached file contents instead of file name.
+ -q         : Don't print cache file name or contents.
+ -t SECONDS : Clear cached versions created before SECONDS in the past.
+ -x         : Do not load a cached file.
+
+ENVIRONMENT
+ HOLD_DIR   : Cache directory. The default is ~/.cache/hold.
+
+EXAMPLES
+ Cache a long running command.
+  $ hold -e -n foo -t 60 costly command
+ Accept a file argument or stdin.
+  $ hold -fx -n qux "${1:--}"
+ Cache a long running pipeline.
+  $ hold -g -n bar -t 30 -q || hold -f -x -n bar - < <(sleep 4 && fortune)
+ Get a cache file by name.
+  $ f="\$(hold -g -n foo)"; cat "$f"
+ Retreive cache file contents.
+  $ hold -g -p -n foo
+ Overwrite a cache.
+  $ hold -n bar -x -f - <<< "test"
 EOF
-    # no options just help
+    # grab current time
+    local now="${EPOCHSECONDS:-$(printf "%(%s)T\n" -1)}"
+    # accept options
+    local name="${FUNCNAME[1]:-hold}" expire=0 new=0 mode='run' out='name'
     local opt OPTIND OPTARG
-    while getopts ":h" opt; do
+    while getopts ":hefgn:pqt:x" opt; do
         case "$opt" in
-            *)
+            e) # command input mode
+                mode='run'
+                ;;
+            f) # file input mode
+                mode='file'
+                ;;
+            g) # cache read
+                mode='load'
+                ;;
+            n) # cache name
+                name="$OPTARG"
+                if ! [[ "$name" =~ ^[[:alnum:]_-]+$ ]]; then
+                    printf "%s - Invalid cache name '%s'.\n" "$0" "$name" >&2
+                    return 1
+                fi
+                ;;
+            t) # cache expiration time
+                expire="$OPTARG"
+                if ! [[ "$expire" =~ ^[[:digit:]]+$ ]]; then
+                    printf "%s - Invalid cache time '%s'.\n" "$0" "$expire" >&2
+                    return 1
+                fi
+                ;;
+            p) # print the file
+                out='content'
+                ;;
+            q) # print nothing
+                out='quiet'
+                ;;
+            x) # force fresh cache
+                new=1
+                ;;
+            h) # help
                 printf "%s\n" "$use" >&2
+                ;;
+            \?)
+                printf "Invalid option '%s'.\n%s\n" "$OPTARG" "$use" >&2
                 return 1
                 ;;
         esac
     done
     shift $((OPTIND - 1))
-    # consider each argument as a file or command
-    local mis=0
-    local arg=""
-    for arg in "$@"; do
-        if [ -r "$arg" ]; then continue; fi
-        if type "$arg" &>/dev/null; then continue; fi
-        ((mis++))
-        printf "%s -- %s is required!\n" "${FUNCNAME[1]}" "$arg" >&2
+    # setup cache directory
+    local tmpd="${HOLD_DIR:-$HOME/.cache/hold}"
+    if ! command mkdir -p "$tmpd"; then
+        printf "Invalid option '%s'.\n%s\n" "$OPTARG" "$use" >&2
+        return 2
+    fi
+    # scan cached files
+    local hot=()
+    shopt -s nullglob
+    for file in "$tmpd/$name."*; do
+        # skip non-files
+        if ! [ -f "$file" ]; then
+            continue
+        fi
+        # parse file name
+        IFS=. read -r _ ts <<< "${file##*/}"
+        if ! [[ "$ts" =~ ^[0-9]+$ ]]; then
+            continue
+        fi
+        # maybe expire each file
+        if (( expire )) &&  (( now - expire > ts )); then
+            command rm "$file"
+            continue
+        fi
+        # gather hits
+        hot+=("$file")
     done
-    # fail if any argument is missing
-    ! ((mis))
+    shopt -u nullglob
+    # check cache
+    local rc=0
+    local cache=""
+    if ! (( new )) && (( ${#hot} )); then
+        # use cached file
+        cache="${hot[-1]}"
+    else
+        # create new cache file
+        local in=""
+        cache=$(printf "$tmpd/%s.%d\n" "$name" "$now")
+        case "$mode" in
+            run) # command mode
+                if (( $# == 0 )); then
+                    printf "Command arguments expected.\n%s\n" "$use" >&2
+                    return 1
+                fi
+                in=$(eval "${*@Q}")
+                ;;
+            file) # file mode
+                # requrie arguments
+                if (( $# == 0 )); then
+                    printf "File argument expected.\n%s\n" "$use" >&2
+                    return 1
+                fi
+                # cat arguments as files or stdin
+                local arg=""
+                for arg in "$@"; do
+                    if [ "$arg" == "-" ]; then
+                        in+=$(< /dev/stdin)
+                    elif [ -f "$arg" ] && [ -r "$arg" ]; then
+                        in+=$(< "$arg")
+                    else
+                        printf "Could not read file '%s'.\n" "$arg" >&2
+                        return 3
+                    fi
+                done
+                ;;
+            load) # cache miss
+                return 4
+                ;;
+        esac
+        # cache input if non-empty
+        if [ -n "$in" ]; then
+            printf "%s\n" "$in" > "$cache"
+        fi
+    fi
+    # output
+    case "$out" in
+        content) # print content of cache file
+            printf "%s\n" "$(< "$cache")"
+            ;;
+        name) # print name of cache file
+            printf "%s\n" "$cache"
+            ;;
+    esac
+    return "$rc"
 }
 
 nth() {
@@ -319,11 +422,44 @@ EOF
     printf "%s\n" "$out"
 }
 
+req() {
+    read -r -d '' use <<EOF
+req COMMAND/FILE [...]
+Require given files and commands.
+Succeed iff each given argument is a known command or readable file.
+This is a utility function to aid in defining program requirements.
+Example:
+ $ req awk /etc/passwd || return 5
+EOF
+    # no options just help
+    local opt OPTIND OPTARG
+    while getopts ":h" opt; do
+        case "$opt" in
+            *)
+                printf "%s\n" "$use" >&2
+                return 1
+                ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    # consider each argument as a file or command
+    local mis=0
+    local arg=""
+    for arg in "$@"; do
+        if [ -r "$arg" ]; then continue; fi
+        if type "$arg" &>/dev/null; then continue; fi
+        ((mis++))
+        printf "%s -- %s is required!\n" "${FUNCNAME[1]}" "$arg" >&2
+    done
+    # fail if any argument is missing
+    ! ((mis))
+}
+
 rleval() {
     read -r -d '' use <<EOF
 rleval COMMAND...
 Evaluate the given command and insert its output into the bash readline buffer.
-The command is templated with 'nth' using current line tokens. See 'nth -h'.
+The command is templated with 'nth' using the current line's tokens. See 'nth -h'.
 This function is intended to be used with the bash builtin 'bind -x'.
 
 Examples:
@@ -364,12 +500,16 @@ EOF
     read -r -a toks <<< "$line"
     # template command
     local cmd=""
-    if ! cmd="$(nth -p "$args" "${toks[@]}")"; then
+    if ! cmd="$(nth -q "$args" "${toks[@]}")"; then
         return 2
     fi
     # eval command
     local str=""
     if ! str=$(eval -- "$cmd"); then
+        return 3
+    fi
+    # no change if output empty
+    if [ -z "$str" ]; then
         return 3
     fi
     # update the readline buffer
@@ -382,7 +522,7 @@ rlword() {
 rlword COMMAND...
 Evaluate the given command and replace the word at point in the readline
  buffer with its output.
-The command string is templated with 'nth' using the word at point and current line tokens
+The command string is templated with 'nth' using the word at point and the current line's tokens
  as arguments, in that order. The word at cursor point is '{0}'. See 'nth -h'.
 This function is intended to be used with the bash builtin 'bind -x'.
 
@@ -463,6 +603,10 @@ EOF
     if ! str=$(eval -- "$cmd"); then
         return 3
     fi
+    # no change if output empty
+    if [ -z "$str" ]; then
+        return 3
+    fi
     # wrap inserted words in spaces
     if ((ins)); then
         str=" ${str} "
@@ -478,12 +622,12 @@ EOF
 
 cz() {
     # version
-    local ver="0.2"
+    local ver="0.3"
     # usage
     local hows="" use=""
     read -r -d '' use <<EOF
 cz [OPTIONS] < LINES
-Select a line from input with an appropriate tool.
+Select a line from input with an available tool.
 
 cz [OPTIONS] [PLUGIN] [ARGS ...]
 Run a plugin to select something application specific.
@@ -506,6 +650,7 @@ OPTIONS
   -d DELIMITER  : Set delimiter to split selected line.
   -e TEMPLATE   : Set command template. This option implies mode '-r'.
   -f FIELDS     : Set field template. This option implies mode '-q'.
+  -g            : Buffer stdin and pass it to command set with '-e'.
   -i IN-FILE    : Set file from which to read selections instead of stdin.
   -x            : Use a graphical line selection tool.
   -y            : Use a text terminal line selection tool.
@@ -536,9 +681,9 @@ EOF
     mapfile -t hows <<EOF
 Pick from lines on stdin.:$ printf "%s\n" foo bar qux | cz
 Accept null delimited input lines.:$ find . -name '*.yml' -print0 | cz -0
-Extract useful fields from input data.:$ cz -f 0,5 -d : < /etc/passwd
+Extract useful fields from selected line.:$ cz -q -f 0,5 -d : < /etc/passwd
 Safely handle input strings containing shell characters.:$ cz -e 'rev <<< "{0:}"' -i <(printf "%s\n" '\$USER' '; false' '\$(fortune)')
-Add selection to common commands.:$ cz -e 'dig {0} AAAA +short' compgen hostname
+Add selection to common commands.:$ cz -r -e 'dig {0} AAAA +short' compgen hostname
 Easily define plugins as bash functions.:$ cz_whois() { cz -e 'whois {0}' -f 0 compgen hostname; }; cz whois
 Select a password and put it on an xclip clipboard.:$ cz pass | cz xclip in
 Jump to any descendant directory.:$ cd \$(cz find dir)
@@ -553,22 +698,23 @@ EOF
     # here are the supporterd line selection tools
     local gbins=() tbins=()
     read -r -a gbins <<< "${CZ_BINS_GUI:-dmenu rofi}"
-    read -r -a tbins <<< "${CZ_BINS_TTY:-fzf pick pipedial sentaku iselect vis-menu}"
+    read -r -a tbins <<< "${CZ_BINS_TTY:-fzf pick pipedial sentaku iselect slmenu vis-menu}"
     # determine type of interface for line selection tool
     local app="" gfx=""
-    IFS=: read -r gfx app _ <<< "${CZ_GUI:-1}"
+    IFS=: read -r gfx app _ <<< "${CZ_GUI:-2}"
     if [ -z "$DISPLAY" ]; then gfx=0; fi
     # accept options
     local tpl="${CZ_TEMPLATE}" # string template
     local fld="${CZ_FIELDS}"   # string field selection
     local mode="${CZ_MODE}"    # integer program mode
     local inp="/dev/stdin"     # string file from which to select a line
+    local buf=0                # boolean require buffered stdin for command
     local run=""               # null program mode implied by another option
     local nul=0                # boolean reading null separated lines
     local dlm="$IFS"           # string delimeter to split selected line
     local help="${CZ_HELP}"    # string indicator for help requested
     local opt OPTIND OPTARG
-    while getopts ":d:e:f:hHi:lkpqrsvxyz:0" opt; do
+    while getopts ":d:e:f:ghHi:lkpqrsvxyz:0" opt; do
         case "$opt" in
             d) # delimeter
                 dlm="$OPTARG"
@@ -584,6 +730,9 @@ EOF
                     return 2
                 fi
                 run=1
+                ;;
+            g) # buffer stdin for command
+                buf=1
                 ;;
             h) # set help mode
                 help="YES PLEASE"
@@ -665,16 +814,29 @@ EOF
         esac
     done
     shift $((OPTIND - 1))
-    # pick an appropriate line selection tool
+    # determine an available line selection tool
+    local got=""
     if [ -z "$app" ]; then
-        if ((gfx)); then
-            for app in "${gbins[@]}"; do
-                if type "$app" &>/dev/null; then break; fi
-            done
-        else
-            for app in "${tbins[@]}"; do
-                if type "$app" &>/dev/null; then break; fi
-            done
+        # graphical or terminal
+        local tools=()
+        case "$gfx" in
+            0) tools=("${tbins[@]}") ;;
+            1) tools=("${gbins[@]}") ;;
+            *) tools=("${gbins[@]}" "${tbins[@]}") ;;
+        esac
+        # use first available tool
+        for app in "${tools[@]}"; do
+            if type "$app" &>/dev/null; then
+                got="$app"
+                break
+            fi
+        done
+        app="$got"
+        # no tools found
+        if [ -z "$got" ]; then
+            printf "No line selection tools found!\nTry installing one of these:\n" >&2
+            printf "%s\n" "${tools[@]}" | sort >&2
+            return 5
         fi
     fi
     # program mode might have been implied
@@ -682,9 +844,7 @@ EOF
     # plugins - any command in the format 'cz_$WORD'
     if [ -n "$*" ]; then
         # determine if a known plugin is given
-        local plug=""
-        local args=("$@")
-        local word=0
+        local args=("$@") plug="" word=0
         for ((word=${#args[@]}; word>0; word--)); do
             plug="${args[*]:0:$word}"
             plug="cz_${plug// /_}"
@@ -698,8 +858,11 @@ EOF
         fi
         shift "$word"
         # run the plugin with override environment variables
-        CZ_GUI="${gfx}:${app}"  CZ_HELP="$help" CZ_MODE="$mode" \
-              CZ_FIELDS="$fld" CZ_TEMPLATE="$tpl" \
+        CZ_GUI="${gfx}:${app}"   \
+              CZ_HELP="$help"    \
+              CZ_MODE="$mode"    \
+              CZ_FIELDS="$fld"   \
+              CZ_TEMPLATE="$tpl" \
               "$plug" "$@"
         return $?
     fi
@@ -720,20 +883,17 @@ EOF
         return 3
     fi
     # buffer stdin if reading selection input from another file
+    # this is needed to pass input to templated commands
     declare -a stdin
     if [[ "$inp" != "/dev/stdin" ]] && ! [ -t 0 ]; then
         mapfile -t stdin
-        # require some input bytes unless attached to /dev/null
-        if [ -z "${stdin[*]}" ] &&
-               type readlink &>/dev/null &&
-               [ "$(readlink -f /dev/stdin)" != "/dev/null" ]; then
-            return 4
-        fi
+        # optionally require actual input lines
+        if ((buf)) && ! ((${#stdin})); then return 4; fi
     fi
     # choose a line using a known program
     local out
     out=$(case "$app" in
-              dmenu    )
+              dmenu)
                   local color="${CZ_DMENU_COLOR:-white:black:black:white}"
                   IFS=':' read -r nf nb sf sb <<< "$color"
                   dmenu -i -l 30 -nf "$nf"  -nb "$nb" -sf "$sf"  -sb "$sb"
@@ -748,20 +908,22 @@ EOF
               vis-menu ) vis-menu -i -l 30 ;;
               chuz     ) chuz ;;
               * )
-              ;;
+                  printf "Unknown tool %s.\n" "$app" >&2
+                  return 2
+                  ;;
           esac < <(if ((nul)); then
                        printf "%q\n" "${lines[@]}"
                    else
                        printf "%s\n" "${lines[@]}"
                    fi)
        )
+    # require that selector succeeded and got a line
+    if (($?)) || [ -z "$out" ]; then
+        return 4
+    fi
     # rectify shell quoted line
     if ((nul)); then
         out=$(eval printf "%s" "$out")
-    fi
-    # terminate if the line is empty
-    if [ -z "$out" ]; then
-        return 3
     fi
     # tokenize selected line for use in templates
     local cmd=""
@@ -778,17 +940,17 @@ EOF
         1) # print some fields extracted from the line
             if ! out="$(nth -p "{${fld}}" "${toks[@]}")"; then
                 printf "Failed to parse template.\n%s\n" "$fld" >&2
-                return 4
+                return 5
             fi
             printf "%s\n" "$out"
             ;;
-        2) # render the command string template then run it
+        2) # render the command string template then eval it
             if ! cmd="$(nth -q "${tpl}" "${toks[@]}")"; then
                 printf "Failed to parse template.\n%s\n" "$tpl" >&2
-                return 4
+                return 5
             fi
             # eval the command string maybe passing buffered input
-            if [ -n "${stdin[*]}" ]; then
+            if ((${#stdin})); then
                 CZ_MODE="" CZ_FIELDS="" CZ_TEMPLATE="" CZ_GUI="${gfx}:${app}" \
                        eval "$cmd" < <(printf "%s\n" "${stdin[@]}")
             else
@@ -896,7 +1058,30 @@ Select from anagrams of TEXT.
 Optionally limit to a maximum number of WORDS.
 EOF
     req an || return 5
+    if [ -z "$1" ]; then return 2; fi
     cz -i <(an -l "${2:-3}" "$1")
+}
+
+anc() {
+    local d="${1:-$PWD}"
+    if ! [ -d "$d" ]; then return 2; fi;
+    IFS=/ read -ra t <<< "${d#/}"
+    local b s n
+    for ((n=0; n<=${#t[@]}; n++)); do
+        b="${t[$n]}"
+        printf "%s\n" "${s:-/}"
+        s="${s}/${b}"
+    done
+}
+
+cz_ancestor() {
+    { hep "$CZ_HELP" && return; } <<EOF
+$ cz ancestor [DIRECTORY]
+Select from parent directories.
+EOF
+    local d="${1:-$PWD}"
+    if ! [ -d "$d" ]; then return 2; fi;
+    cz -f 0: -e 'cd {0:}' -i <(anc "$d")
 }
 
 cz_ansible_group() {
@@ -1095,7 +1280,17 @@ cz command
 Select a command and run it.
 EOF
     CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:dark green:white:black}"
-    cz -f 0 -e '{0}' compgen command
+    cz -ge '{0}' -f 0 compgen command
+}
+
+cz_descendant() {
+    { hep "$CZ_HELP" && return; } <<EOF
+$ cz ancestor [DIRECTORY]
+Select from parent directories.
+EOF
+    local d="${1:-$PWD}"
+    if ! [ -d "$d" ]; then return 2; fi
+    cz -e 'cd {0:}' find dir
 }
 
 cz_dict_strategy() {
@@ -1185,8 +1380,8 @@ Select a font file usable by figlet.
 EOF
     req figlet || return 5
     local fdir="${FIGLET_FONTDIR:-/usr/share/figlet}"
-    cz -f 0 -e "figlet -t -d $fdir -f {0}" \
-       -i <(for f in "$fdir"/*f; do
+    cz -f 0 -ge "figlet -t -d $fdir -f {0}" \
+       -i <(for f in "$fdir"/*.{flf,tlf}; do
                 printf "%s %s\n" "${f##*/}" "${f}"
             done)
 }
@@ -1198,7 +1393,7 @@ Select a file under DIRECTORY (or current working directory)
  with full path matching PATTERN.
 EOF
     req find || return 5
-    cz -0 -i <(find "${1:-.}" -iwholename "${2:-*}" -type f -print0)
+    cz -0 -i <(find "${1:-.}" -iwholename "*${2}*" -type f -print0)
 }
 
 cz_find_dir() {
@@ -1208,7 +1403,22 @@ Select a file under DIRECTORY (or current working directory)
  with full path matching PATTERN.
 EOF
     req find || return 5
-    cz -0 -i <(find "${1:-.}" -iwholename "${2:-*}" -type d -print0)
+    cz -0 -i <(find "${1:-.}" -iwholename "*${2}*" -type d -print0)
+}
+
+cz_firefox_tab() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz firefox tab
+Select an open firefox tab.
+EOF
+    req column firefox jq lz4jsoncat || return 5
+    local db=("$HOME"/.mozilla/firefox/*.default/sessionstore-backups/recovery.jsonlz4)
+    if [ -z "${db[0]}" ]; then
+        return 3
+    fi
+    cz -f 0 -i <(lz4jsoncat "${db[0]}" | \
+                     jq -r '.windows[].tabs[].entries[] |  [.url,.title] | @tsv' | \
+                     column -t -s $'\t')
 }
 
 cz_flatpak_app() {
@@ -1330,7 +1540,7 @@ EOF
     req gcloud jq || return 5
     local proj="${1:-$(cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
-    cz -f 1 -e "gcloud --project $proj --format json compute images describe {0} " \
+    cz -f 0 -e "gcloud --project $proj --format json compute images describe {0} " \
        -i <(gcloud --project "$proj" --format json compute images list | \
                 jq -r '.[] | [.name, .creationTimestamp ] | @tsv')
 }
@@ -1390,7 +1600,8 @@ cz_gcloud_permission() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud permission [RESOURCE]
 Select a Google cloud permission and describe it in JSON.
-If a resource argument is given only list applicable permissions.
+If a RESOURCE URL argument is given only list applicable permissions.
+By default list all permissions on the selected organization.
 EOF
     req gcloud jq || return 5
     local url="${1}"
@@ -1469,6 +1680,34 @@ EOF
                 jq -r '.[] | [.email, .displayName, .email] | @tsv')
 }
 
+cz_gh_gist() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz gh gist
+Select a Github gist and view it.
+EOF
+    req gh || return 5
+    cz -e 'gh gist view {0}' -f 0 -i <(gh gist list)
+}
+
+cz_gh_issue() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz gh issue
+Select a Github issue and view it.
+EOF
+    req gh || return 5
+    cz -e 'gh issue view {0}' -f 0 -i <(gh issue list)
+}
+
+cz_gh_pr() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz gh pr
+Select a Github pull request and view it.
+EOF
+    req gh awk || return 5
+    cz -e 'gh pr view {1}' -f 2 \
+       -i <(gh pr list --limit 100 | awk -F $'\t' '{ print $4, $1, $3, $2 }' )
+}
+
 cz_git() {
     cz git status "$@"
 }
@@ -1534,6 +1773,16 @@ EOF
     req git || return 5
     local repo="${1:-.}"
     cz -f 0 -i <(git -C "$repo" tag)
+}
+
+cz_git_worktree() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz git worktree [DIRECTORY]
+Select a worktree associated with the git repository in DIRECTORY.
+EOF
+    req git || return 5
+    local repo="${1:-.}"
+    cz -f 0 -i <(git -C "$repo" worktree list)
 }
 
 cz_help() {
@@ -1725,7 +1974,7 @@ Select from jq path strings for each element of the input file or stream
 EOF
     req jq || return 5
     local f=""
-    if ! f=$(acc "$1"); then
+    if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
     cz -f 0 -e "jq -r {0} $f" < <(jq -r '"." + (path(..) | map("[\(tojson)]") | join(""))' "$f")
@@ -1739,7 +1988,7 @@ Select from jq path strings for each scalar within the input file or stream
 EOF
     req jq || return 5
     local f=""
-    if ! f=$(acc "$1"); then
+    if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
     read -r -d '' filter <<EOF
@@ -1763,7 +2012,7 @@ Select from jq path strings for each element of the input file or stream
 EOF
     req jq perl || return 5
     local f=""
-    if ! f=$(acc "$1"); then
+    if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
     local y
@@ -1808,7 +2057,7 @@ Select a line number from the input file or stream.
 EOF
     req grep || return 5
     local f=""
-    if ! f=$(acc "$1"); then
+    if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
     cz -d : -f 0 < <(grep -n . "$f")
@@ -1944,7 +2193,7 @@ EOF
     CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:blue:blue:white}"
     req mpc || return 5
     cz -f 0 -e "mpc play {0}" \
-       -i <(mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
+       -i <(hold -ept 30 -- mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
 }
 
 cz_nss_group() {
@@ -2011,7 +2260,6 @@ EOF
     cz -f 0 -i <(gem query --local)
 }
 
-
 cz_pass() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz pass
@@ -2048,7 +2296,7 @@ cz perl doc
 Select a perldoc page and open it for reading.
 EOF
     req perldoc perldoc-search || return 5
-    cz -f 0 -e "perldoc {0}" < <(perldoc-search .)
+    cz -f 0 -e "perldoc {0}" -i <(perldoc-search . | perl -nE 'say $1 if /([\w:]+) - /')
 }
 
 cz_process() {
@@ -2105,6 +2353,15 @@ EOF
     cz -f 0 -e 'pactl set-source-mute {0} toggle' -i <(pactl list short sources)
 }
 
+cz_pwgen() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz pwgen [LENGTH]
+Select a generated password of given length.
+EOF
+    req pwgen || return 5
+    cz -f 0 -i <(pwgen -1 -s "${1:-20}" 50)
+}
+
 cz_screen_session() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz screen session
@@ -2155,11 +2412,11 @@ EOF
 
 cz_surfraw() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz surfraw [QUERY]
-Select a surfraw elvi in a running ssh-agent.
+cz surfraw [QUERY ...]
+Select a surfraw elvi then run it with the given query.
 EOF
     req surfraw || return 5
-    cz -f 0 -e "surfraw {0} \"$1\"" < <(surfraw -elvi | sed 1d)
+    cz -f 0 -e "surfraw {0} $*" < <(surfraw -elvi | sed 1d)
 }
 
 cz_sysctl() {
@@ -2171,44 +2428,35 @@ EOF
     cz -f 0 -i <(sysctl -a 2>/dev/null)
 }
 
-cz_systemd_unit() {
+cz_systemd_system() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz systemd unit
-Select a systemd unit then check its status.
+cz systemd [TYPE]
+Select a systemd system unit then check its status.
 EOF
     req systemctl || return 5
+    local type="$1"
     cz -f 0 -e 'systemctl status {0}' \
-       -i <(systemctl list-units -l --plain --no-legend)
+       -i <(systemctl list-units  --system "${type:+--type=$type}" -l --plain --no-legend)
 }
 
-cz_systemd_service() {
+cz_systemd_type() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz systemd service
-Select a systemd service and check its status.
+cz systemd type
+Select a type of systemd unit.
 EOF
-    req systemctl || return 5
-    cz -f 0 -e 'systemctl status {0}' \
-       -i <(systemctl list-units -l --type=service --plain --no-legend)
+    req sed systemctl || return 5
+    cz -f 0 -i <(systemctl -t help | sed 1d)
 }
 
-cz_systemd_socket() {
+cz_systemd_user() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz systemd service
-Select a systemd socket and check its status.
+cz systemd user [TYPE]
+Select a systemd user unit by type then check its status.
 EOF
     req systemctl || return 5
-    cz -f 0 -e 'systemctl status {0}' \
-       -i <(systemctl list-units -l --type=socket --plain --no-legend)
-}
-
-cz_systemd_timer() {
-    { hep "$CZ_HELP" && return; } <<EOF
-cz systemd service
-Select a systemd timer and check its status.
-EOF
-    req systemctl || return 5
-    cz -f 0 -e 'systemctl status {0}' \
-       -i <(systemctl list-units -l --type=timer --plain --no-legend)
+    local type="$1"
+    cz -f 0 -e 'systemctl --user status {0}' \
+       -i <(eval systemctl list-units --user "${type:+--type='$type'}" -l --plain --no-legend)
 }
 
 cz_timezone() {
@@ -2235,6 +2483,15 @@ Select a tmux command.
 EOF
     req tmux || return 5
     cz -f 0 -i <(tmux list-commands)
+}
+
+cz_tmux_key() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz tmux key
+Select a tmux key binding.
+EOF
+    req tmux || return 5
+    cz -i <(tmux list-keys)
 }
 
 cz_tmux_pane() {
@@ -2311,15 +2568,15 @@ Select a URI extracted from the input text.
 EOF
     CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-white:black:black:green}"
     local f=""
-    if ! f=$(acc "$1"); then
+    if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
-    if type urifind &>/dev/null; then
+    if type sensible-browser urifind &>/dev/null; then
         cz -e 'sensible-browser {0}' < <(urifind -su < "$f")
-    elif type xurls &>/dev/null; then
+    elif type sensible-browser xurls &>/dev/null; then
         cz -e 'sensible-browser {0}' < <(xurls -r < "$f")
     else
-        req xurls urifind || return 5
+        req sensible-browser urifind xurls || return 5
     fi
 }
 
@@ -2339,10 +2596,10 @@ Select a word from the given file or stream.
 EOF
     req grep sort || return 5
     local f=""
-    if ! f=$(acc "$1"); then
+    if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
-    cz < <(grep -Eo '([[:alnum:]-_])+' "$f" | sort -u)
+    cz < <(grep -Eo '([[:alnum:]_-])+' "$f" | sort -u)
 }
 
 cz_x11_rgb() {
@@ -2385,7 +2642,7 @@ Select a xclip buffer and write the input stream to it.
 EOF
     CZ_DMENU_COLOR="${CZ_DMENU_COLOR:-black:dark gray:black:red}"
     req xclip || return 5
-    cz -e 'xclip -selection {0} -i' -i <(xclip_brief)
+    cz -ge 'xclip -selection {0} -i' -i <(xclip_brief)
 }
 
 cz_xclip_out() {
@@ -2405,7 +2662,7 @@ Select a XML element by xpath string and print it.
 EOF
     req xmlstarlet || return 5
     local f=""
-    if ! f=$(acc "$1"); then
+    if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
     cz -f 0 -e "xmlstarlet sel -B -t -c {0:} $f" < <(xmlstarlet el "$f")
@@ -2418,7 +2675,7 @@ Select a XML element by xpath string and extract its contents.
 EOF
     req xmlstarlet || return 5
     local f=""
-    if ! f=$(acc "${1}"); then
+    if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
     cz -f 0 -e "xmlstarlet sel -B -t -v {0:} $f" < <(xmlstarlet el "$f")
