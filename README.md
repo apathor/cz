@@ -2,9 +2,9 @@
 
 Cz provides a common interface to interactive line selection tools.
 
-Cz also acts as an extensible framework for line selection based applications.
+Cz also acts as a framework for line selection based applications.
 
-Included are 160 plugins for common use cases. Out of the box you can select from:
+Included are 160+ plugins for common use cases. Out of the box you can select from:
 
  - everything from bash's built-in completion
  - files and directories
@@ -30,7 +30,7 @@ Cz suports the following line selection tools:
  - [pipedial](https://code.reversed.top/user/xaizek/pipedial)
  - [rofi](https://github.com/davatorium/rofi)
  - [sentaku](https://github.com/rcmdnk/sentaku)
- - [slmenu](https://bitbucket.org/rafaelgg/slmenu)
+ - [slmenu](https://bitbucket.org/rafaelgg/slmenu) (defunct?)
  - [vis-menu](https://github.com/martanne/vis)
 
 ## Installation
@@ -52,7 +52,7 @@ It is assumed that at least one of the line selection tools listed above is also
 
 ```
 cz [OPTIONS] < LINES
-Select a line from input with an appropriate tool.
+Select a line from input with an available tool.
 
 cz [OPTIONS] [PLUGIN] [ARGS ...]
 Run a plugin to select something application specific.
@@ -60,6 +60,7 @@ Run a plugin to select something application specific.
 OPTIONS
  These options print some information and exit:
   -h : help     : Print this help text or help text for plugin.
+  -H : example  : Print a bunch of example commands.
   -k : tools    : List supported line selection tools.
   -l : plugins  : List detected plugins.
   -v : version  : Print version string.
@@ -74,6 +75,7 @@ OPTIONS
   -d DELIMITER  : Set delimiter to split selected line.
   -e TEMPLATE   : Set command template. This option implies mode '-r'.
   -f FIELDS     : Set field template. This option implies mode '-q'.
+  -g            : Buffer stdin and pass it to command set with '-e'.
   -i IN-FILE    : Set file from which to read selections instead of stdin.
   -x            : Use a graphical line selection tool.
   -y            : Use a text terminal line selection tool.
@@ -96,6 +98,40 @@ ENVIRONMENT
  CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
 
 ```
+## Examples
+
+Pick from lines on stdin.
+> printf "%s\n" foo bar qux | cz
+
+Accept null delimited input lines.
+> find . -name '*.yml' -print0 | cz -0
+
+Extract useful fields from selected line.
+> cz -q -f 0,5 -d : < /etc/passwd
+
+Safely handle input strings containing shell characters.
+> cz -e 'rev <<< "{0:}"' -i <(printf "%s\n" '$USER' '; false' '$(fortune)')
+
+Add selection to common commands.
+> cz -r -e 'dig {0} AAAA +short' compgen hostname
+
+Easily define plugins as bash functions.
+> cz_whois() { cz -e 'whois {0}' -f 0 compgen hostname; }; cz whois
+
+Select a password and put it on an xclip clipboard.
+> cz pass | cz xclip in
+
+Jump to any descendant directory.
+> cd "$(cz find dir)"
+
+Grab a URL from a paste buffer and open it in a browser.
+> cz xclip out | cz -e 'firefox {0}' uri
+
+Compose plugins to get the contents of any element from a JSON file.
+> cz -r -e 'cz -r jq {0}' locate *.json
+
+Compose plugins to get any file under an apparix bookmarked directory.
+> cz -r -e 'cz -q find file {1}' apparix
 
 ## Configuration
 
@@ -103,99 +139,55 @@ To get the most out of cz users should consider binding shell and window manager
 
 ### Bash
 
-Bash users can source cz to load two functions useful for key bindings:
+Download this [example bash config](conf/cz.bashrc) then copy it into your bashrc file.
+
+The example config defines several key bindings that each insert text into the shell's edit buffer.
+
+ - C-x x : select a plugin, run it, and insert fields from the selected line
+ - C-x X : select a plugin, run it, and insert the selected line
+ - C-x z : select a plugin, run it, and insert templated command output
+ - C-x Z : select a plguin, run it, and insert templated command string
+ - C-x r : Select and insert a command from history
+ - C-x u : select and insert a unicode character
+ - C-x g : select an uncomitted file in current git repo and insert its path
+ - C-x G : select a comitted file in current git repo and insert its path
+
+Bash users should source cz to load two functions useful for key bindings:
 
  - rleval : insert the output of a command at cursor point in the readline buffer
  - rlword : replace the word under the cursor in the readline buffer with the output of a command
 
-Add the following to ~/.bashrc to configure key bindings that provide an interface to all plugins:
-```sh
-# source cz to enable completion and extra functions
-. cz
+See 'rleval -h' and 'rlword -h' for usage.
 
-# use only terminal line selection tools in the shell
-export CZ_GUI=0
+### Zsh
 
-# select a plugin, run it and insert a relevant field from the selected line
-bind -x '"\C-xx":rleval "cz meta -q"'
+Download this [example zsh config](conf/cz.zshrc) then copy it into your zshrc file.
 
-# select a plugin, run it and insert the whole selected line
-bind -x '"\C-xX":rleval "cz meta -p"'
-
-# select a plugin, run it and insert the output of its command
-bind -x '"\C-xz":rleval "cz meta -r"'
-
-# select a plugin, run it and insert its command string
-bind -x '"\C-xZ":rleval "cz meta -s"'
-
-```
-
-Here are some narrower examples:
-```sh
-# insert selected path to file under current directory
-bind -x '"\C-xf":rleval "cz find file"'
-
-# change working directory to selected apparix bookmark
-bind -x '"\C-xa":cz -e "cd {1}" apparix'
-
-# select a process and kill it
-bind -x '"\C-xk":cz -r kill'
-
-# insert selected bash history entry
-bind -x '"\C-xr":rleval "cz -q bash history"'
-
-# insert selected word from recent bash history
-bind -x '"\C-xw":rleval "cz word < <(HISTTIMEFORMAT=\"\" history 1000)"'
-
-# insert selected unicode character
-bind -x '"\C-xu":rleval "cz -q unicode"'
-
-# insert selected modified file from the git repository in the current directory
-bind -x '"\C-xg":rleval "cz -q git status"'
-
-# insert selected file held by the git repository in the current directory
-bind -x '"\C-xG":rleval "cz -q git file"'
-
-# ssh into the selected host
-bind -x '"\C-xh":stty sane; cz -r ssh; stty sane'
-
-# play selected track from the mpd playlist
-bind -x '"\C-xm":cz -r mpd track'
-```
+The example config defines the same key bindings described in the bash section above.
 
 ### i3 Window Manager
 
-```
-# i3 specific plugins
-bindsym $mod+space        exec i3-input -F 'mark %s' 1 -P 'Mark: '
-bindsym $mod+Shift+space  exec "cz i3 mark"
-bindsym $mod+Tab          exec "cz i3 window"
-bindsym $mod+Shift+Tab    exec "cz i3 workspace"
+Download this [example i3 config](conf/cz-i3.conf) then copy it into your i3 config.
 
-# put cz output for any plugin onto a clipboard
-bindsym $mod+z            exec "cz meta -r | cz xclip in"
-bindsym $mod+Shift+z      exec "cz meta -s | cz xclip in"
-bindsym $mod+x            exec "cz meta -q | cz xclip in"
-bindsym $mod+Shift+x      exec "cz meta -p | cz xclip in"
+The example config defines the following key bindings:
 
-# run selected command
-bindsym $mod+c            exec "cz command"
-
-# pipe the contents of a clipboard through selected command
-bindsym $mod+Shift+c      exec "cz xclip out | cz command | cz xclip in"
-
-# browse to selected URI extracted from a clipboard
-bindsym $mod+o            exec "cz xclip out | cz -r uri"
-
-# put a password from a password manager onto a clipboard
-bindsym $mod+p            exec "cz pass | cz xclip in"
-
-```
+ - Mod-x : select a plugin, run it, and put fields from selected line into a clipboard
+ - Mod-X : select a plugin, run it, and put selected line into a clipboard
+ - Mod-z : select a plugin, run it, and put command output into a clipboard
+ - Mod-Z : select a plguin, run it, and put command string into a clipboard
+ - Mod-c : select a command and run it
+ - Mod-C : select a clipboard and pipe its contents through the selected command
+ - Mod-o : select a clipboard then select from URLs extracted from its contents to open in a browser
+ - Mod-Shift-Space : select an i3 a tag and jump to the selected window
+ - Mod-Tab : select an i3 window and jump to it
+ - Mod-Shift-Tab : select an i3 workspace and switch to it
 
 ## Plugins
 
 Cz considers any command starting with 'cz_' a valid plugin.
+
 Plugins should:
+
  - print usage text if the CZ_HELP environment variable is non-empty
  - provide some application specific input to cz
  - run cz with application specific options (-d, -e, -f, -i)
@@ -208,7 +200,7 @@ A function like the following can be defined in your bash configuration:
 ```sh
 cz_fruit() {
   if [ -n "$CZ_HELP" ]; then
-    printf "cz fruit\nSelect a fruit\n"
+    printf "cz fruit\nSelect a fruit\n" >&2
     return 0
   fi
   cz -e 'printf "Go %s!\n" {0}' \
@@ -227,12 +219,12 @@ use strict;
 use warnings;
 
 if($ENV{"CZ_HELP"}) {
-  print "cz twos\nSelect from powers of two.";
-  return 0;
+  print STDERR "cz twos\nSelect from powers of two.\n";
+  exit 0;
 }
 
 open(my $pipe, "|-", "cz -f 1");
-print $pipe $_ for map { sprintf "%d\t%d\n", $_, 2 ** $_ } (1..32);
+print $pipe $_ for map { sprintf "%d %d\n", $_, 2 ** $_ } (1..32);
 close($pipe);
 
 ```

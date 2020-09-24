@@ -1,0 +1,40 @@
+# Bash Cz Config
+
+# Require that cz is sourced
+if ! . cz; then return; fi
+
+# Disable graphical programs from the shell
+export CZ_GUI=0
+
+# Core Functionality
+# Insert selected cz plugin output into the readline buffer at cursor
+bind -x '"\C-xx":rleval cz meta -q'             # insert field(s)
+bind -x '"\C-xX":rleval cz meta -p'             # insert line 
+bind -x '"\C-xz":rleval cz meta -r'             # insert command output  
+bind -x '"\C-xZ":rleval cz meta -s'             # insert command string
+bind -x '"\C-xc":cz meta -r'                    # just run command
+
+# Shell Utilities
+# Insert text useful in the shell  
+bind -x '"\C-xr":rleval cz -q bash history'     # insert selected line from bash history
+bind -x '"\C-x!":rleval cz -q argv {0:}'        # insert word selected from current readline buffer
+bind -x '"\C-xu":rleval cz -q unicode'          # insert selected unicode character
+
+# Directory Navigation
+# Change directory to selected directory above or below current directory
+bind -x '"\C-x<":cz -re "cd {0}" ancestor'
+bind -x '"\C-x>":cz -re "cd {0}" descendant'
+
+# Git
+# Insert selected paths from git repo in the current directory into the readline buffer
+bind -x '"\C-xg":rleval cz -q git status'      # insert selected uncomitted file 
+bind -x '"\C-xG":rleval cz -q git file'        # insert 
+
+# File Lookup
+# Replace the word under readline cursor with a selected file
+bind -x '"\C-xd":rlword cz -q find dir . {0}'   # find dir matching word at cursor
+bind -x '"\C-xD":rlword cz -q find dir {0}'     # find dir under directory at cursor
+bind -x '"\C-xf":rlword cz -q find file . {0}'  # find file matching word at cursor
+bind -x '"\C-xF":rlword cz -q find file {0}'    # find file under directory at cursor 
+bind -x '"\C-xl":rlword cz -q locate {0}'       # locate file matching word at cursor
+
