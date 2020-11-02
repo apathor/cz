@@ -65,8 +65,7 @@ hep() {
 hep TOGGLE < INPUT > OUTPUT
 Print input text if TOGGLE is non-empty, otherwise fail.
 This is a utility function to aid in optionally printing a block of usage text.
-Example:
- $ { hep "\$HELP_TOGGLE" && return; } <<<EOF ...
+For example: { hep "\$HELP_TOGGLE" && return; } <<<EOF ...
 EOF
     # no option but help
     local opt OPTIND OPTARG
@@ -91,18 +90,18 @@ hold() {
     # usage
     read -r -d '' use <<EOF
 hold [OPTIONS] [MODE] [ARGUMENTS]
-Cache input in a temporary file.
+Speed up pipelines with caching!
 
 MODE
  -e         : arguments are evaluated as a command and the output is cached
- -f         : arguments are considered a list of files and their content is cached
+ -f         : arguments are considered files and their content is cached
  -g         : ignore arguments and only retreive cached content
 
 OPTIONS
- -n NAME    : Set cache prefix to NAME. Defaults to the name of the caller function.
- -p         : Print cached file contents instead of file name.
- -q         : Don't print cache file name or contents.
- -t SECONDS : Clear cached versions created before SECONDS in the past.
+ -n NAME    : Set the cache name. By default the name of the calling function is used.
+ -p         : Print the contents of the cached file instead of its name.
+ -q         : Quiet mode. Do not print cache file name or contents.
+ -t SECONDS : Clear cache files older than given number of seconds.
  -x         : Do not load a cached file.
 
 ENVIRONMENT
@@ -110,17 +109,17 @@ ENVIRONMENT
 
 EXAMPLES
  Cache a long running command.
-  $ hold -e -n foo -t 60 costly command
- Accept a file argument or stdin.
-  $ hold -fx -n qux "${1:--}"
+  $ hold -e -n foo -t 60 long running command
  Cache a long running pipeline.
-  $ hold -g -n bar -t 30 -q || hold -f -x -n bar - < <(sleep 4 && fortune)
+  $ hold -g -n bar -t 30 || hold -f -n bar -x <(sleep 4 && fortune)
  Get a cache file by name.
-  $ f="\$(hold -g -n foo)"; cat "$f"
+  $ f="\$(hold -g -n foo)"; cat "\$f"
  Retreive cache file contents.
   $ hold -g -p -n foo
  Overwrite a cache.
   $ hold -n bar -x -f - <<< "test"
+ Accept a file argument or stdin in one command.
+  $ hold -fx -n qux "${1:--}"
 EOF
     # grab current time
     local now="${EPOCHSECONDS:-$(printf "%(%s)T\n" -1)}"
@@ -163,6 +162,7 @@ EOF
                 ;;
             h) # help
                 printf "%s\n" "$use" >&2
+                return 0
                 ;;
             \?)
                 printf "Invalid option '%s'.\n%s\n" "$OPTARG" "$use" >&2
@@ -177,7 +177,7 @@ EOF
         printf "Invalid option '%s'.\n%s\n" "$OPTARG" "$use" >&2
         return 2
     fi
-    # scan cached files
+    # scan cached files in glob order
     local hot=()
     shopt -s nullglob
     for file in "$tmpd/$name."*; do
@@ -195,7 +195,7 @@ EOF
             command rm "$file"
             continue
         fi
-        # gather hits
+        # gather matching files
         hot+=("$file")
     done
     shopt -u nullglob
@@ -203,52 +203,36 @@ EOF
     local rc=0
     local cache=""
     if ! (( new )) && (( ${#hot} )); then
-        # use cached file
+        # use most recent cached file
         cache="${hot[-1]}"
     else
-        # create new cache file
-        local in=""
+        # create a new cache file
         cache=$(printf "$tmpd/%s.%d\n" "$name" "$now")
         case "$mode" in
-            run) # command mode
+            run) # command mode - eval arguments as a command
                 if (( $# == 0 )); then
                     printf "Command arguments expected.\n%s\n" "$use" >&2
                     return 1
                 fi
-                in=$(eval "${*@Q}")
+                eval "${*@Q}" > "$cache"
                 ;;
-            file) # file mode
+            file) # file mode - cat arguments
                 # requrie arguments
                 if (( $# == 0 )); then
                     printf "File argument expected.\n%s\n" "$use" >&2
                     return 1
                 fi
-                # cat arguments as files or stdin
-                local arg=""
-                for arg in "$@"; do
-                    if [ "$arg" == "-" ]; then
-                        in+=$(< /dev/stdin)
-                    elif [ -f "$arg" ] && [ -r "$arg" ]; then
-                        in+=$(< "$arg")
-                    else
-                        printf "Could not read file '%s'.\n" "$arg" >&2
-                        return 3
-                    fi
-                done
+                cat -- "$*" > "$cache"
                 ;;
-            load) # cache miss
+            load) # cache miss!
                 return 4
                 ;;
         esac
-        # cache input if non-empty
-        if [ -n "$in" ]; then
-            printf "%s\n" "$in" > "$cache"
-        fi
     fi
     # output
     case "$out" in
         content) # print content of cache file
-            printf "%s\n" "$(< "$cache")"
+            cat "$cache"
             ;;
         name) # print name of cache file
             printf "%s\n" "$cache"
@@ -266,26 +250,32 @@ Generate a string from TEMPLATE replacing variables of the following format:
  {X:Y}   : arguments X through X + Y
  {X,Y,Z} : arguments X, Y, and Z
 
-OPTIONS
- -p : print output normally
- -q : print output quoted for use in the shell
+Append @C, @E, @P, or @Q to transform selected arguments:
+ @C - Insert argument directly. This is risky for command strings!
+ @E - Replace backslash escape sequences in arguments with bash $'...' quotes.
+ @P - Expand arguments for use in prompt strings.
+ @Q - Quote arguments for use in command input. This is the default.
 
-EXAMPLE
- $ nth '{1} {0} {0}' foo bar
- $ nth '{2:2}' 1 2 3 4 5
- $ nth '{7,4,11,11,14}' {a..z}
+OPTIONS
+ -c -e -p -q
+  Use @C, @E, @P, or @Q transform by default for each variable.
+
+EXAMPLES
+ $ nth -p "{2,25}" {A..Z}       = C Z
+ $ nth -q "{0:}" foo bar baz    = 'foo' 'bar' 'baz'
+ $ nth "{1} {0@P}" "a b" "c d"  = 'c d' a b
+ $ nth "({1,2@P})" w x y z      = (x y)
+
 EOF
     # accept options
-    local fmt='%s'
+    local tfm="Q"
     local opt OPTIND OPTARG
-    while getopts ":hpq" opt; do
+    while getopts ":cehpq" opt; do
         case "$opt" in
-            p) # plain format
-                fmt='%s'
-                ;;
-            q) # quoted format
-                fmt='%q'
-                ;;
+            c) tfm="C" ;; # clear
+            e) tfm="E" ;; # escaped
+            p) tfm="P" ;; # prompt
+            q) tfm="Q" ;; # quoted
             *) # invalid?
                 printf "%s\n" "$use" >&2
                 return 1
@@ -300,126 +290,115 @@ EOF
         printf "%s\n" "$use" >&2
         return 1
     fi
-    # remaining arguments are tokens
+    # any remaining arguments are tokens to be inserted into the template
     local toks=("$@")
-    # collecting output string segments
-    local segs=()
-    # parse field selection...
-    local str="" fld="" idx=0 suf=0 mode="text"
-    tmpl+=" "
-    while (( idx < "${#tmpl}" )); do
+    # parser appends to this output string
+    local out=""
+    # parse template string
+    local index=0 mode="text"
+    local char="" next=""
+    local field="" fields=() fmt=""
+    while (( index < "${#tmpl}" )); do
         # consider each character
-        char="${tmpl:$idx:1}"
-        next="${tmpl:$((idx + 1)):1}"
+        char="${tmpl:$index:1}"
+        next="${tmpl:$(( index + 1 )):1}"
         # switch on parser mode
         if [[ "$mode" == "text" ]]; then
-            # literal text mode
+            # parse literal text
             case "$char" in
                 '{')
-                    # start parsing a variable
-                    if [[ "$next" == '{' ]]; then
-                        str+='{'
-                        let idx++
-                    else
-                        mode="var"
-                    fi
-                    ;;
-                '}')
-                    # maybe close an escaped var
-                    str+="$char"
-                    if [[ "$next" == '}' ]]; then
-                        let idx++
-                    fi
-                    ;;
-                ' ')
-                    # append a suffix or a new field
-                    if [ -n "$str" ]; then
-                        if ((suf)); then
-                            segs[-1]+="$str"
-                        else
-                            segs+=("$str")
-                        fi
-                    fi
-                    # reset for next string
-                    str=""
-                    suf=0
+                    # curly brace starts a variable
+                    fields=()
+                    mode="var"
                     ;;
                 *)
                     # accumulate characters
-                    str+="$char"
+                    out+="$char"
                     ;;
             esac
         elif [[ "$mode" == "var" ]]; then
-            # variable mode
+            # start parsing a variable
             case "$char" in
                 '{') # escaped literal curly brace
-                    str+="$char"
+                    out+="$char"
                     mode="text"
+                    ;;
+                [[:digit:]:-]) # valid field chars
+                    field+="$char"
                     ;;
                 [,\}]) # field separator
                     # match and validate the field
-                    if ! [[ "$fld" =~ ^(-?[[:digit:]]+)(:([[:digit:]]+)?)?$ ]]; then
-                        printf "Invalid field string '%s'\n" "$fld" >&2
+                    if ! [[ "$field" =~ ^(-?[[:digit:]]+)(:([[:digit:]]+)?)?$ ]]; then
+                        printf "Invalid field string '%s'\n%s\n" "$field" "$use" >&2
                         return 3
                     fi
-                    # get regex match groups - field and range
-                    local sel len
-                    sel="${BASH_REMATCH[1]}"
-                    len="${BASH_REMATCH[3]:-${BASH_REMATCH[2]}}"
+                    # get regex match groups - field, range,
+                    local sel="${BASH_REMATCH[1]}"
+                    local len="${BASH_REMATCH[3]:-${BASH_REMATCH[2]}}"
                     if [ -z "$len" ]; then
                         # N - one specific field
-                        segs+=("$(printf "%s${fmt}" "${str}" "${toks[$sel]}")")
-                        str=""
+                        fields+=("${toks[$sel]}")
                     elif [ "$len" == ":" ]; then
                         # N: - a slice of fields
-                        for tok in "${toks[@]:$((sel))}"; do
-                            segs+=("$(printf "%s${fmt}" "$str" "$tok")")
-                            str=""
-                        done
+                        fields+=("${toks[@]:$((sel))}")
                     else
                         # N:X - a range of fields
                         if [[ "$len" -lt 1 ]]; then
                             printf "Invalid range '%s'\n" "$len" >&2
                             return 3
                         fi
-                        for tok in "${toks[@]:$((sel)):$((len))}"; do
-                            segs+=("$(printf "%s${fmt}" "$str" "$tok")")
-                            str=""
-                        done
-                    fi
-                    # maybe done with this variable
-                    if [[ "$char" == '}' ]]; then
-                        mode="text"
-                        suf=1
+                        fields+=("${toks[@]:$((sel)):$((len))}")
                     fi
                     # reset field
-                    fld=""
-                    str=""
+                    field=""
+                    ;;&
+                '}') # end variable
+                    mode="text"
+                    # add selected fields to output
+                    local more=""
+                    fmt="${fmt:-$tfm}"
+                    if [ "$fmt" == "C" ]; then
+                        more=$(printf "%s " "${fields[@]}")
+                    else
+                        more=$(eval "printf \"%s \" \"\${fields[@]@$fmt}\"")
+                    fi
+                    fmt=""
+                    # add selected fields to output
+                    out+="${more%${more##*[![:space:]]}}"
                     ;;
-                [[:digit:]:-]) # valid field chars
-                    fld+="$char"
+                '@') # field transformation string
+                    case "$next" in
+                        [CEPQ]) # accept transform formats
+                            fmt="$next"
+                            let index++
+                            ;;
+                        *) # anything else is an error
+                            printf "Invalid format string '%s'\n%s\n" "$next" "$use" >&2
+                            return 3
+                            ;;
+                    esac
+                    ;;
+                ',') # field selection continues
                     ;;
                 *) # invalid
-                    printf "Could not parse character '%s' at index %d.\n\n%s\n" "$char" "$idx" "$use" >&2
+                    printf "Could not parse character '%s' at index %d.\n\n%s\n" "$char" "$index" "$use" >&2
                     return 3
                     ;;
             esac
         fi
         # next character
-        let idx++
+        let index++
     done
     # check if parsing ended cleanly
     if [[ "$mode" == "var" ]]; then
         printf "Unclosed variable delimeter?\n%s\n" "$use"  >&2
         return 3
     fi
-    # generate output string maybe with shell quotes
-    local out
-    out=$(printf "%s " "${segs[@]}")
-    # strip trailing whitespace
+    # strip leading and trailing whitespace
+    out="${out##*()}"
     out="${out%${out##*[![:space:]]}}"
     # write it
-    printf "%s\n" "$out"
+    printf "%s\n" "${out}"
 }
 
 req() {
@@ -428,8 +407,7 @@ req COMMAND/FILE [...]
 Require given files and commands.
 Succeed iff each given argument is a known command or readable file.
 This is a utility function to aid in defining program requirements.
-Example:
- $ req awk /etc/passwd || return 5
+For example: req awk /etc/passwd || return 5
 EOF
     # no options just help
     local opt OPTIND OPTARG
@@ -462,7 +440,7 @@ Evaluate the given command and insert its output into the bash readline buffer.
 The command is templated with 'nth' using the current line's tokens. See 'nth -h'.
 This function is intended to be used with the bash builtin 'bind -x'.
 
-Examples:
+EXAMPLES
  Insert the first token from the current readline buffer.
  $ bind -x '"\C-x0":rleval "echo {0}"'
 
@@ -483,7 +461,7 @@ EOF
     # require readline context
     local line="$READLINE_LINE" pt="$READLINE_POINT"
     if [ -z "$pt" ]; then
-        printf "%s\n" "$use" >&2
+        printf "%s only works with 'bind -x'!\n%s\n" "${FUNCNAME[0]}" "$use" >&2
         return 2
     fi
     # require command argument
@@ -500,7 +478,7 @@ EOF
     read -r -a toks <<< "$line"
     # template command
     local cmd=""
-    if ! cmd="$(nth -q "$args" "${toks[@]}")"; then
+    if ! cmd="$(nth "$args" "${toks[@]/#\~/$HOME}")"; then
         return 2
     fi
     # eval command
@@ -526,15 +504,12 @@ The command string is templated with 'nth' using the word at point and the curre
  as arguments, in that order. The word at cursor point is '{0}'. See 'nth -h'.
 This function is intended to be used with the bash builtin 'bind -x'.
 
-Examples:
+EXAMPLES
  Replace the current word with a generated password.
  $ bind -x '"\C-xp":rlword "pwgen 20 1"'
 
  Replace the current word with itself reversed.
  $ bind -x '"\C-xt":rlword "rev <<< {0}"'
-
- Replace the current word with a word already in the readline buffer.
- $ bind -x '"\C-xy":rlword "cz argv {1:}"'
 
  Have some fun with base64!
  $ bind -x '"\C-xb":rlword "base64 <<< {0}"'
@@ -558,7 +533,7 @@ EOF
     # require readline context
     local line="$READLINE_LINE" pt="$READLINE_POINT"
     if [ -z "$pt" ]; then
-        printf "%s\n" "$use" >&2
+        printf "%s only works with 'bind -x'!\n%s\n" "${FUNCNAME[0]}" "$use" >&2
         return 2
     fi
     # tokenize current readline line
@@ -595,7 +570,7 @@ EOF
     fi
     # template command
     local cmd=""
-    if ! cmd=$(nth -q "$*" "$word" "${toks[@]}"); then
+    if ! cmd=$(nth "$*" "${word/#\~/$HOME}" "${toks[@]/#\~/$HOME}"); then
         return 2
     fi
     # eval command
@@ -622,7 +597,7 @@ EOF
 
 cz() {
     # version
-    local ver="0.3"
+    local ver="0.4"
     # usage
     local hows="" use=""
     read -r -d '' use <<EOF
@@ -647,7 +622,7 @@ OPTIONS
   -s : simulate : Print the string formatted by TEMPLATE using fields from the line.
 
  General options:
-  -d DELIMITER  : Set delimiter to split selected line.
+  -d DELIMITER  : Set field splitting characters for selected line.
   -e TEMPLATE   : Set command template. This option implies mode '-r'.
   -f FIELDS     : Set field template. This option implies mode '-q'.
   -g            : Buffer stdin and pass it to command set with '-e'.
@@ -694,7 +669,7 @@ EOF
     # append one random example to usage text
     local des="" exp=""
     IFS=: read -r des exp <<< "${hows[$(( RANDOM % ${#hows[@]} ))]}"
-    use+=$(printf "\n\nEXAMPLE\n %s\n %s\n" "$des" "$exp")
+    use+=$(printf "\n\nEXAMPLES\n %s\n %s\n" "$des" "$exp")
     # here are the supporterd line selection tools
     local gbins=() tbins=()
     read -r -a gbins <<< "${CZ_BINS_GUI:-dmenu rofi}"
@@ -725,7 +700,7 @@ EOF
                 ;;
             f) # fields to be extracted
                 fld="${fld:-${OPTARG}}"
-                if ! [[ "$fld" =~ ^([0-9]+(:[0-9]+?)?,?)*$ ]]; then
+                if ! [[ "$fld" =~ ^(-?[[:digit:]]+)(:([[:digit:]]+)?)?(@[CEPQ])?$ ]]; then
                     printf "Invalid field template '%s'\n" "$fld" >&2
                     return 2
                 fi
@@ -938,14 +913,14 @@ EOF
             printf "%s\n" "$out"
             ;;
         1) # print some fields extracted from the line
-            if ! out="$(nth -p "{${fld}}" "${toks[@]}")"; then
+            if ! out="$(nth "{${fld}}" "${toks[@]}")"; then
                 printf "Failed to parse template.\n%s\n" "$fld" >&2
                 return 5
             fi
             printf "%s\n" "$out"
             ;;
         2) # render the command string template then eval it
-            if ! cmd="$(nth -q "${tpl}" "${toks[@]}")"; then
+            if ! cmd="$(nth "${tpl}" "${toks[@]}")"; then
                 printf "Failed to parse template.\n%s\n" "$tpl" >&2
                 return 5
             fi
@@ -960,7 +935,7 @@ EOF
             return $?
             ;;
         3) # template the command string and print it
-            if ! cmd="$(nth -p "${tpl}" "${toks[@]}")"; then
+            if ! cmd="$(nth "${tpl}" "${toks[@]}")"; then
                 printf "Failed to parse template.\n%s\n" "$tpl" >&2
                 return 4
             fi
@@ -1081,7 +1056,7 @@ Select from parent directories.
 EOF
     local d="${1:-$PWD}"
     if ! [ -d "$d" ]; then return 2; fi;
-    cz -f 0: -e 'cd {0:}' -i <(anc "$d")
+    cz -d '' -f 0: -e 'cd {0}' -i <(anc "$d")
 }
 
 cz_ansible_group() {
@@ -1174,6 +1149,14 @@ EOF
     cz -f 1 -i <(avconv -loglevel 0 -decoders | sed 1,10d)
 }
 
+cz_bash_alias() {
+        { hep "$CZ_HELP" && return; } <<EOF
+cz bash alias
+Select from defined bash aliases.
+EOF
+    cz -i <(alias)
+}
+
 cz_bash_bind_function() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz bash bind function
@@ -1225,7 +1208,7 @@ cz bash history
 Select a command from bash history then run it.
 EOF
     req sort || return 5
-    cz -f 3: -e "{3:}" \
+    cz -f '3:@C' -e "{3:@C}" \
        -i <(HISTTIMEFORMAT="%F %T " history | sort -r -n)
 }
 
@@ -1290,7 +1273,7 @@ Select from parent directories.
 EOF
     local d="${1:-$PWD}"
     if ! [ -d "$d" ]; then return 2; fi
-    cz -e 'cd {0:}' find dir
+    cz -d '' -e 'cd {0}' find dir
 }
 
 cz_dict_strategy() {
@@ -1393,7 +1376,7 @@ Select a file under DIRECTORY (or current working directory)
  with full path matching PATTERN.
 EOF
     req find || return 5
-    cz -0 -i <(find "${1:-.}" -iwholename "*${2}*" -type f -print0)
+    cz -d '' -0 -i <(find -L "${1:-.}" -iwholename "*${2}*" -type f -print0)
 }
 
 cz_find_dir() {
@@ -1403,7 +1386,7 @@ Select a file under DIRECTORY (or current working directory)
  with full path matching PATTERN.
 EOF
     req find || return 5
-    cz -0 -i <(find "${1:-.}" -iwholename "*${2}*" -type d -print0)
+    cz -d '' -0 -i <(find -L "${1:-.}" -iwholename "*${2}*" -type d -print0)
 }
 
 cz_firefox_tab() {
@@ -1556,6 +1539,28 @@ EOF
     cz -f 1 -e "gcloud --project $proj --format json compute instances describe --zone {2} {1}" \
        -i <(gcloud --project "$proj" --format json compute instances list \
                 | jq -r '.[] | [.id, .name, (.zone | split("/")[-1]), .networkInterfaces[0].networkIP // "-", .accessConfigs[0].natIP // "-", .status] | @tsv')
+}
+
+cz_gcloud_compute_region() {
+        { hep "$CZ_HELP" && return; } <<EOF
+cz gcloud compute region
+Select a Google cloud region and describe it in JSON.
+EOF
+        req gcloud jq || return 5
+        cz -f 1 -e 'gcloud compute regions describe {1}' \
+           -i <(gcloud --format=json compute regions list \
+                    | jq -r '.[] | [.id, .name, .description] | @tsv')
+}
+
+cz_gcloud_compute_zone() {
+        { hep "$CZ_HELP" && return; } <<EOF
+cz gcloud compute zone
+Select a Google cloud zone and describe it in JSON.
+EOF
+        req gcloud jq || return 5
+        cz -f 1 -e 'gcloud compute zones describe {1}' \
+           -i <(gcloud --format=json compute zones list \
+                    | jq -r '.[] | [.id, .name, .description] | @tsv')
 }
 
 cz_gcloud_dns_record() {
@@ -1712,6 +1717,19 @@ cz_git() {
     cz git status "$@"
 }
 
+cz_git_diff() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz git diff [DIRECTORY] [BRANCH]
+Select a file in git repo in the given directory that differs from the given
+branch. If unspecified the branch will be selected interactively.
+EOF
+    req git || return 5
+    local repo="${1:-.}"
+    local branch="${2:-$(cz -q git branch "$repo")}"
+    cz -f 0 -e "git -C '$repo' diff '$branch' -- {0}" \
+       -i <(git -C "$repo" diff --name-only "$branch")
+}
+
 cz_git_status() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz git status [DIRECTORY]
@@ -1719,7 +1737,8 @@ Select a modified file in the git repository in DIRECTORY.
 EOF
     req git grep || return 5
     local repo="${1:-.}"
-    cz -f 1 -e 'git diff {1}' -i <(git -C "$repo" status -sbu | grep -v ^#)
+    cz -f 1 -e "git -C '$repo' diff {1}" \
+       -i <(git -C "$repo" status -sbu | grep -v ^#)
 }
 
 cz_git_branch() {
@@ -1739,6 +1758,15 @@ Select a commit from the history of the git repository in DIRECTORY.
 Given FILE, select a commit that modified that file.
 EOF
     req git || return 5
+}
+
+cz_git_log() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz git log [DIRECTORY] [FILE]
+Select a commit from the history of the git repository in DIRECTORY.
+Given FILE, select a commit that modified that file.
+EOF
+    req git || return 5
     local repo="${1:-.}"
     local file="${2:-.}"
     cz -f 0 -e "git -C $repo show {0}" \
@@ -1748,7 +1776,7 @@ EOF
 cz_git_file()  {
     { hep "$CZ_HELP" && return; } <<EOF
 cz git file [DIRECTORY]
-Select a branch from the git repository in DIRECTORY.
+Select a file managed by the git repository in DIRECTORY.
 EOF
     req git grep || return 5
     local repo="${1:-.}"
@@ -1758,7 +1786,7 @@ EOF
 cz_git_remote() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz git remote [DIRECTORY]
-Select a remote defined in the git repository in DIRECTORY.
+Select a remote repository known to the git repository in DIRECTORY.
 EOF
     req git || return 5
     local repo="${1:-.}"
@@ -1783,6 +1811,17 @@ EOF
     req git || return 5
     local repo="${1:-.}"
     cz -f 0 -i <(git -C "$repo" worktree list)
+}
+
+cz_grep() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz grep [PATTERN] [DIRECTORY]
+Select a file matching PATTERN in DIRECTORY.
+EOF
+    req grep || return 5
+    local pat="${1:-.}"
+    local dir="${2:-.}"
+    cz -d '' -f 0 -i <(grep -r -l -- "$pat" "$dir")
 }
 
 cz_help() {
@@ -1826,7 +1865,7 @@ cz i3 mark
 Select an i3 window mark then move focus to the marked window.
 EOF
     req i3-msg jq || return 5
-    cz -f 0 -e 'i3-msg "[con_mark={0}] focus"' \
+    cz -f 0 -e 'i3-msg "[con_mark={0@C}] focus"' \
        -i <(i3-msg -t get_marks | jq -r '.[]')
 }
 
@@ -1858,7 +1897,7 @@ EOF
 .. | select(.id? and .type == "con" and .nodes == [])
    | [ (.id | tostring), .output, .name] | join(" ")
 EOF
-    cz -f 0 -e 'i3-msg "[con_id={0}] focus"' \
+    cz -f 0 -e 'i3-msg "[con_id={0@C}] focus"' \
        -i <(i3-msg -t get_tree | jq -r "$filter")
 }
 
@@ -2050,17 +2089,17 @@ EOF
     cz -e "lpass show --password {0}" < <(printf "%s\n" "${menu[@]}")
 }
 
-cz_lineno() {
+cz_line() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz lineno [FILE] [< STREAM]
+cz line [FILE] [< STREAM]
 Select a line number from the input file or stream.
 EOF
-    req grep || return 5
+    req sed || return 5
     local f=""
     if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
-    cz -d : -f 0 < <(grep -n . "$f")
+    cz -e "sed -n {0}p '$f'" -f 0 < <(sed '=' "$f" | sed '/./N;s/\n/ /')
 }
 
 cz_locate() {
@@ -2109,7 +2148,8 @@ Select a cz plugin and run it in the given mode.
 The mode options are -p -q -r -s. The default mode is -p.
 This plugin is best used bound to a key, providing a quick
  interface to every other cz plugin.
-Examples:
+
+EXAMPLES
  $ bind -x '"\C-xx":rleval "cz meta -q"' # insert field
  $ bind -x '"\C-xX":rleval "cz meta -p"' # insert line
  $ bind -x '"\C-xz":rleval "cz meta -r"' # insert command output
@@ -2162,6 +2202,15 @@ Select an mpd output and toggle it between enabled and disabled.
 EOF
     req mpc || return 5
     cz -e "mpc toggleoutput {1}" -i <(mpc outputs)
+}
+
+cz_mpd_playlist() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz mpd output
+Select an mpd output and toggle it between enabled and disabled.
+EOF
+    req mpc || return 5
+    cz -e "mpc clear && mpc load {0} && mpc play" -i <(mpc lsplaylists)
 }
 
 cz_mpd_search() {
@@ -2360,6 +2409,26 @@ Select a generated password of given length.
 EOF
     req pwgen || return 5
     cz -f 0 -i <(pwgen -1 -s "${1:-20}" 50)
+}
+
+cz_raku_module() {
+        { hep "$CZ_HELP" && return; } <<EOF
+cz raku installed
+Select a generated password of given length.
+EOF
+    req sed zef || return 5
+    cz -f 0 -i <(zef list -i 2>/dev/null | sed 's/:ver/ /')
+}
+
+cz_ripgrep() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz ripgrep [PATTERN] [DIRECTORY]
+Select a file matching PATTERN in DIRECTORY.
+EOF
+    req rg || return 5
+    local pat="${1:-.}"
+    local dir="${2:-.}"
+    cz -d '' -f 0 -i <(rg -l -- "$pat" "$dir")
 }
 
 cz_screen_session() {
@@ -2586,7 +2655,7 @@ cz usb
 Select a USB device.
 EOF
     req lsusb || return 5
-    cz -e 'lsusb -v -d {}' -f 5 -i <(lsusb)
+    cz -e 'lsusb -v -d {5}' -f 5 -i <(lsusb)
 }
 
 cz_word() {
@@ -2665,7 +2734,7 @@ EOF
     if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
-    cz -f 0 -e "xmlstarlet sel -B -t -c {0:} $f" < <(xmlstarlet el "$f")
+    cz -d '' -f 0 -e "xmlstarlet sel -B -t -c {0} $f" < <(xmlstarlet el -v "$f")
 }
 
 cz_xml_value() {
@@ -2678,7 +2747,7 @@ EOF
     if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
-    cz -f 0 -e "xmlstarlet sel -B -t -v {0:} $f" < <(xmlstarlet el "$f")
+    cz -d '' -f 0 -e "xmlstarlet sel -B -t -v {0} $f" < <(xmlstarlet el -v "$f")
 }
 
 cz_xrandr_monitor() {
