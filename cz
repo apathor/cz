@@ -124,7 +124,11 @@ EOF
     # grab current time
     local now="${EPOCHSECONDS:-$(printf "%(%s)T\n" -1)}"
     # accept options
-    local name="${FUNCNAME[1]:-hold}" expire=0 new=0 mode='run' out='name'
+    local name="${FUNCNAME[1]:-hold}" # string cache name
+    local expire=0                    # integer seconds to expire cache
+    local new=0                       # boolean to clear cache
+    local mode='run'                  # program mode: run/file/load
+    local out='name'                  # output mode: name/content/quiet
     local opt OPTIND OPTARG
     while getopts ":hefgn:pqt:x" opt; do
         case "$opt" in
@@ -370,7 +374,7 @@ EOF
                     case "$next" in
                         [CEPQ]) # accept transform formats
                             fmt="$next"
-                            let index++
+                            (( index++ ))
                             ;;
                         *) # anything else is an error
                             printf "Invalid format string '%s'\n%s\n" "$next" "$use" >&2
@@ -387,7 +391,7 @@ EOF
             esac
         fi
         # next character
-        let index++
+        (( index++ ))
     done
     # check if parsing ended cleanly
     if [[ "$mode" == "var" ]]; then
@@ -639,6 +643,13 @@ TEMPLATES
      {X:}    - fields X through end of fields
      {X:Y}   - fields X through X + Y
      {X,Y,Z} - fields X, Y, and Z
+
+ Append @C, @E, @P, or @Q to transform selected fields:
+  @C - Insert argument directly. This is risky for command strings!
+  @E - Replace backslash escape sequences in arguments with bash $'...' quotes.
+  @P - Expand arguments for use in prompt strings.
+  @Q - Quote arguments for use in command input. This is the default.
+
  FIELDS consists of one of the above without the enclosing '{}'.
 
 ENVIRONMENT
@@ -700,10 +711,6 @@ EOF
                 ;;
             f) # fields to be extracted
                 fld="${fld:-${OPTARG}}"
-                if ! [[ "$fld" =~ ^(-?[[:digit:]]+)(:([[:digit:]]+)?)?(@[CEPQ])?$ ]]; then
-                    printf "Invalid field template '%s'\n" "$fld" >&2
-                    return 2
-                fi
                 run=1
                 ;;
             g) # buffer stdin for command
@@ -891,9 +898,9 @@ EOF
                    else
                        printf "%s\n" "${lines[@]}"
                    fi)
-       )
+       ) || return 4
     # require that selector succeeded and got a line
-    if (($?)) || [ -z "$out" ]; then
+    if [ -z "$out" ]; then
         return 4
     fi
     # rectify shell quoted line
@@ -913,15 +920,15 @@ EOF
             printf "%s\n" "$out"
             ;;
         1) # print some fields extracted from the line
-            if ! out="$(nth "{${fld}}" "${toks[@]}")"; then
-                printf "Failed to parse template.\n%s\n" "$fld" >&2
+            if ! out="$(nth -p "{${fld}}" "${toks[@]}" 2>/dev/null)"; then
+                printf "Failed to parse template: %s\n" "$fld" >&2
                 return 5
             fi
             printf "%s\n" "$out"
             ;;
         2) # render the command string template then eval it
-            if ! cmd="$(nth "${tpl}" "${toks[@]}")"; then
-                printf "Failed to parse template.\n%s\n" "$tpl" >&2
+            if ! cmd="$(nth "${tpl}" "${toks[@]}" 2>/dev/null)"; then
+                printf "Failed to parse template: %s\n" "$tpl" >&2
                 return 5
             fi
             # eval the command string maybe passing buffered input
@@ -946,6 +953,7 @@ EOF
 
 # cz command completion
 function _cz() {
+    local reply=()
     # get lists of supported tools and plugins
     local tools=() plugs=()
     mapfile -t tools < <(cz -k)
@@ -978,23 +986,26 @@ function _cz() {
     # maybe the previous word is a redirection
     local rd='^[&12]?[><]'
     if [[ "$prev" =~ $rd ]]; then
-        COMPREPLY=($(compgen -f -- "$curr"))
+        mapfile -t reply < <(compgen -f -- "$curr")
+        COMPREPLY=("${reply[@]}")
         return
     fi
     # maybe the previous word is an option that expects an argument
     if [[ "$prev" =~ ^-[defiz]$ ]]; then
         case "$prev" in
-            -d) COMPREPLY=(); ;;
-            -e) COMPREPLY=($(compgen -c -- "$curr")) ;;
-            -f) COMPREPLY=($(compgen -W "0 1 2 3 4 5 6 7 8 9" -- "$curr")) ;;
-            -i) COMPREPLY=($(compgen -f -- "$curr")) ;;
-            -z) COMPREPLY=($(compgen -W "${tools[*]%% *}"  -- "$curr")) ;;
+            -d) reply=(); ;;
+            -e) mapfile -t reply < <(compgen -c -- "$curr") ;;
+            -f) mapfile -t reply < <(compgen -W "0 1 2 3 4 5 6 7 8 9" -- "$curr") ;;
+            -i) mapfile -t reply < <(compgen -f -- "$curr") ;;
+            -z) mapfile -t reply < <(compgen -W "${tools[*]%% *}"  -- "$curr") ;;
         esac
+        COMPREPLY=("${reply[@]}")
         return
     fi
     # first complete initial command token and options
     if [ -z "$base" ]; then
-        COMPREPLY=($(compgen -W "${!opts[*]} ${plugs[*]%%_*}" -- "$curr"))
+        mapfile -t reply < <(compgen -W "${!opts[*]} ${plugs[*]%%_*}" -- "$curr")
+        COMPREPLY=("${reply[@]}")
         return
     fi
     # determine next command token
@@ -1006,7 +1017,8 @@ function _cz() {
     done
     # maybe complete next command token
     if (("${#next[@]}")); then
-        COMPREPLY=($(compgen -W "${next[*]}" -- "$curr"))
+        mapfile -t reply < <(compgen -W "${next[*]}" -- "$curr")
+        COMPREPLY=("${reply[@]}")
         return
     fi
     # TODO maybe complete something specific for a plugin
@@ -1038,14 +1050,15 @@ EOF
 }
 
 anc() {
-    local d="${1:-$PWD}"
-    if ! [ -d "$d" ]; then return 2; fi;
-    IFS=/ read -ra t <<< "${d#/}"
-    local b s n
-    for ((n=0; n<=${#t[@]}; n++)); do
-        b="${t[$n]}"
-        printf "%s\n" "${s:-/}"
-        s="${s}/${b}"
+    local dir="${1:-$PWD}"
+    if ! [ -d "$dir" ]; then return 2; fi;
+    local toks=()
+    IFS=/ read -ra toks <<< "${dir#/}"
+    local seg="" cur="" idx=0
+    for ((idx=0; idx<=${#toks[@]}; idx++)); do
+        seg="${toks[$idx]}"
+        printf "%s\n" "${cur:-/}"
+        cur="${cur}/${seg}"
     done
 }
 
@@ -1655,7 +1668,7 @@ cz gcloud project
 Select a Google cloud project and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    cz -f 0 -e 'gcloud --format json projects describe {0}' \
+    cz -f '0@C' -e 'gcloud --format json projects describe {0}' \
        -i <(gcloud --format json projects list | jq -r '.[] | [.projectId, .name] | @tsv')
 }
 
@@ -1832,6 +1845,26 @@ EOF
     cz -e 'cz -h {0}' -i <(cz -l)
 }
 
+cz_haskell_package() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz haskell package
+Select a haskell cabal package then show info about it.
+EOF
+    req cabal || return 5
+    cz -e 'cabal info {0}' -f 0 \
+       -i <(hold -ept 300 -- cabal list --simple-output)
+}
+
+cz_haskell_installed() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz haskell installed
+Select an installed haskell cabal package then show info about it.
+EOF
+    req cabal || return 5
+    cz -f 0 -e 'cabal info {0}' -f 0 \
+       -i <(hold -ept 300 -- cabal list --installed --simple-output)
+}
+
 cz_hg_branch() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz hg branch [DIRECTORY]
@@ -1974,7 +2007,7 @@ EOF
         line="${lines[$index]}"
         case "$symbol" in
             '') # next
-                let index++
+                (( index++ ))
                 continue
                 ;;
             '?') # guess
@@ -2111,17 +2144,6 @@ EOF
     cz -0 -i <(locate -i -0 "${@:-$PWD}")
 }
 
-cz_locate_mimetype() {
-    { hep "$CZ_HELP" && return; } <<EOF
-cz locate [QUERY ...]
-Select a mimetype then select a file from the locate database matching its known extensions.
-EOF
-    req locate || return 5
-    local e=($(cz -q -f 1: mimetype))
-    if ! ((${#e})); then return 2; fi
-    cz locate "${e[@]/#/*.}"
-}
-
 cz_locate_regex() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz locate regex [PATTERN ...]
@@ -2200,8 +2222,8 @@ cz_mpd_output() {
 cz mpd output
 Select an mpd output and toggle it between enabled and disabled.
 EOF
-    req mpc || return 5
-    cz -e "mpc toggleoutput {1}" -i <(mpc outputs)
+    req grep mpc || return 5
+    cz -e "mpc toggleoutput {1}" -i <(mpc outputs | grep -v '^[[:space:]]')
 }
 
 cz_mpd_playlist() {
@@ -2330,12 +2352,12 @@ EOF
     cz -f 0 -i <(lspci)
 }
 
-cz_perl_module() {
+cz_perl_installed() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz perl module
 Select an installed perl module.
 EOF
-    req perldoc perldoc-search || return 5
+    req perl || return 5
     cz -f 0 -i <(perl -MExtUtils::Installed  -E 'say for ExtUtils::Installed->new->modules')
 }
 
@@ -2371,6 +2393,15 @@ Select a python document and open it for reading.
 EOF
     req pydoc || return 5
     cz -f 0 -e "pydoc {0}" < <(pydoc -k .)
+}
+
+cz_python_installed() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz python installed
+Select an installed python package and show info about it.
+EOF
+    req pip || return 5
+    cz -f 0 -e "pip show {0}" < <(pip list)
 }
 
 cz_pulseaudio_sink() {
