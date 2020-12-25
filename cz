@@ -4,7 +4,6 @@
 # (C) 2020 by Mike Lalumiere
 #
 # TODO Completion hook function?
-# TODO Option to specify prompt (see 'dmenu -p foo')
 # TODO AWS/s3 plugins
 # TODO I8n?
 # TODO Better built-in line selector
@@ -111,16 +110,21 @@ EXAMPLES
  Cache a long running command.
   $ hold -e -n foo -t 60 long running command
  Cache a long running pipeline.
-  $ hold -g -n bar -t 30 || hold -f -n bar -x <(sleep 4 && fortune)
+  $ hold -g -n bar -t 30 || hold -f -n bar -x <(long running command)
  Get a cache file by name.
   $ f="\$(hold -g -n foo)"; cat "\$f"
  Retreive cache file contents.
   $ hold -g -p -n foo
  Overwrite a cache.
-  $ hold -n bar -x -f - <<< "test"
+  $ hold -fx -n bar - <<< "test"
  Accept a file argument or stdin in one command.
   $ hold -fx -n qux "${1:--}"
 EOF
+    # help out
+    if (( $# == 0 )); then
+        printf "Command arguments required.\n%s\n" "$use" >&2
+        return 1
+    fi
     # grab current time
     local now="${EPOCHSECONDS:-$(printf "%(%s)T\n" -1)}"
     # accept options
@@ -155,7 +159,7 @@ EOF
                     return 1
                 fi
                 ;;
-            p) # print the file
+            p) # print the contents of the file
                 out='content'
                 ;;
             q) # print nothing
@@ -175,10 +179,10 @@ EOF
         esac
     done
     shift $((OPTIND - 1))
-    # setup cache directory
+    # setup the cache directory
     local tmpd="${HOLD_DIR:-$HOME/.cache/hold}"
     if ! command mkdir -p "$tmpd"; then
-        printf "Invalid option '%s'.\n%s\n" "$OPTARG" "$use" >&2
+        printf "Could not make cache directory '%s'.\n" "$tmpd" >&2
         return 2
     fi
     # scan cached files in glob order
@@ -189,13 +193,13 @@ EOF
         if ! [ -f "$file" ]; then
             continue
         fi
-        # parse file name
+        # get timestamp component of file name
         IFS=. read -r _ ts <<< "${file##*/}"
         if ! [[ "$ts" =~ ^[0-9]+$ ]]; then
             continue
         fi
-        # maybe expire each file
-        if (( expire )) &&  (( now - expire > ts )); then
+        # remove files older than the expiration time
+        if (( new )) || (( expire )) && (( now - expire > ts )); then
             command rm "$file"
             continue
         fi
@@ -215,7 +219,7 @@ EOF
         case "$mode" in
             run) # command mode - eval arguments as a command
                 if (( $# == 0 )); then
-                    printf "Command arguments expected.\n%s\n" "$use" >&2
+                    printf "Command arguments required.\n%s\n" "$use" >&2
                     return 1
                 fi
                 eval "${*@Q}" > "$cache"
@@ -223,9 +227,18 @@ EOF
             file) # file mode - cat arguments
                 # requrie arguments
                 if (( $# == 0 )); then
-                    printf "File argument expected.\n%s\n" "$use" >&2
+                    printf "File arguments required.\n%s\n" "$use" >&2
                     return 1
                 fi
+                # ensure each file exists
+                local each=""
+                for each in "$@"; do
+                    if ! [ -f "$each" ] && [ "$each" != "-" ]; then
+                        printf "File does not exist: '%s'\n%s\n" "$each" "$use" >&2
+                        return 1
+                    fi
+                done
+                # dump file contents to cache
                 cat -- "$*" > "$cache"
                 ;;
             load) # cache miss!
@@ -261,7 +274,7 @@ Append @C, @E, @P, or @Q to transform selected arguments:
  @Q - Quote arguments for use in command input. This is the default.
 
 OPTIONS
- -c -e -p -q
+ -c | -e | -p | -q
   Use @C, @E, @P, or @Q transform by default for each variable.
 
 EXAMPLES
@@ -272,14 +285,14 @@ EXAMPLES
 
 EOF
     # accept options
-    local tfm="Q"
+    local pto="Q"
     local opt OPTIND OPTARG
     while getopts ":cehpq" opt; do
         case "$opt" in
-            c) tfm="C" ;; # clear
-            e) tfm="E" ;; # escaped
-            p) tfm="P" ;; # prompt
-            q) tfm="Q" ;; # quoted
+            c) pto="C" ;; # clear
+            e) pto="E" ;; # escaped
+            p) pto="P" ;; # prompt
+            q) pto="Q" ;; # quoted
             *) # invalid?
                 printf "%s\n" "$use" >&2
                 return 1
@@ -360,7 +373,7 @@ EOF
                     mode="text"
                     # add selected fields to output
                     local more=""
-                    fmt="${fmt:-$tfm}"
+                    fmt="${fmt:-$pto}"
                     if [ "$fmt" == "C" ]; then
                         more=$(printf "%s " "${fields[@]}")
                     else
@@ -439,107 +452,66 @@ EOF
 
 rleval() {
     read -r -d '' use <<EOF
-rleval COMMAND...
-Evaluate the given command and insert its output into the bash readline buffer.
-The command is templated with 'nth' using the current line's tokens. See 'nth -h'.
+rleval [OPTIONS] COMMAND [ARGS ...]
+Evaluate command then...
+ -i : insert its output into the readline buffer at cursor point.
+ -w : replace the word at cursor point with its output.
+ -r : run the command attached to the terminal.
+
+The command string is templated using the current readline tokens.
+The word at cursor point is '{0}'. The first token in the command is '{1}' and so on.
 This function is intended to be used with the bash builtin 'bind -x'.
 
 EXAMPLES
- Insert the first token from the current readline buffer.
- $ bind -x '"\C-x0":rleval "echo {0}"'
+ Insert the first token from the current readline buffer:
+ $ bind -x '"\C-x0":rleval -i echo {1}'
 
- Insert fortunes on demand!
- $ bind -x '"\C-xf":rleval fortune"'
+ Insert fortunes on demand:
+ $ bind -x '"\C-xf":rleval -i fortune"'
 
+ Replace the current word with a generated password:
+ $ bind -x '"\C-xp":rleval -w pwgen 20 1'
+
+ Replace the current word with itself reversed:
+ $ bind -x '"\C-xt":rleval -w "rev <<< {0}"'
+
+ Encode and decode base64 strings at cursor point:
+ $ bind -x '"\C-xb":rleval -w "base64 <<< {0}"'
+ $ bind -x '"\C-xB":rleval -w "base64 -d <<< {0}"'
+
+ Open the man page for the topic at cursor point:
+ $ bind -x '"\C-xh":rleval -r man {0}'
 EOF
-    # no options just help
+    # accept options
+    local mode='insert'
     local opt OPTIND OPTARG
-    while getopts ":h" opt; do
+    while getopts ":irwh" opt; do
         case "$opt" in
+            i) mode='insert' ;;
+            r) mode='run'  ;;
+            w) mode='word' ;;
             *)
                 printf "%s\n" "$use" >&2
                 return 1
                 ;;
         esac
     done
+    shift $((OPTIND - 1))
+    # require command argument
+    local args="$*"
+    if ! (($#)); then
+        printf "%s\n" "$use" >&2
+        return 1
+    fi
     # require readline context
     local line="$READLINE_LINE" pt="$READLINE_POINT"
     if [ -z "$pt" ]; then
         printf "%s only works with 'bind -x'!\n%s\n" "${FUNCNAME[0]}" "$use" >&2
         return 2
     fi
-    # require command argument
-    if ! (($#)); then
-        printf "%s\n" "$use" >&2
-        return 1
-    fi
-    local args="$*"
     # record current readline point
     local before="${line:0:$pt}"
     local after="${line:$pt}"
-    # tokenize current readline line
-    local toks=()
-    read -r -a toks <<< "$line"
-    # template command
-    local cmd=""
-    if ! cmd="$(nth "$args" "${toks[@]/#\~/$HOME}")"; then
-        return 2
-    fi
-    # eval command
-    local str=""
-    if ! str=$(eval -- "$cmd"); then
-        return 3
-    fi
-    # no change if output empty
-    if [ -z "$str" ]; then
-        return 3
-    fi
-    # update the readline buffer
-    READLINE_LINE="${before}${str}${after}"
-    ((READLINE_POINT += ${#str}))
-}
-
-rlword() {
-    read -r -d '' use <<EOF
-rlword COMMAND...
-Evaluate the given command and replace the word at point in the readline
- buffer with its output.
-The command string is templated with 'nth' using the word at point and the current line's tokens
- as arguments, in that order. The word at cursor point is '{0}'. See 'nth -h'.
-This function is intended to be used with the bash builtin 'bind -x'.
-
-EXAMPLES
- Replace the current word with a generated password.
- $ bind -x '"\C-xp":rlword "pwgen 20 1"'
-
- Replace the current word with itself reversed.
- $ bind -x '"\C-xt":rlword "rev <<< {0}"'
-
- Have some fun with base64!
- $ bind -x '"\C-xb":rlword "base64 <<< {0}"'
- $ bind -x '"\C-xB":rlword "base64 -d <<< {0}"'
-EOF
-    # no options just help
-    local opt OPTIND OPTARG
-    while getopts ":h" opt; do
-        case "$opt" in
-            *)
-                printf "%s\n" "$use" >&2
-                return 1
-                ;;
-        esac
-    done
-    # require command argument
-    if ! (($#)); then
-        printf "%s\n" "$use" >&2
-        return 1
-    fi
-    # require readline context
-    local line="$READLINE_LINE" pt="$READLINE_POINT"
-    if [ -z "$pt" ]; then
-        printf "%s only works with 'bind -x'!\n%s\n" "${FUNCNAME[0]}" "$use" >&2
-        return 2
-    fi
     # tokenize current readline line
     local toks=()
     read -r -a toks <<< "$line"
@@ -572,36 +544,60 @@ EOF
         # grab the word
         word="${line:$beg:$(( end - beg ))}"
     fi
-    # template command
+    # tokenize current readline line
+    local toks=()
+    read -r -a toks <<< "$line"
+    # render the command template
     local cmd=""
-    if ! cmd=$(nth "$*" "${word/#\~/$HOME}" "${toks[@]/#\~/$HOME}"); then
+    if ! cmd=$(nth "$args" "${word/#\~/$HOME}" "${toks[@]/#\~/$HOME}"); then
         return 2
     fi
-    # eval command
-    local str=""
-    if ! str=$(eval -- "$cmd"); then
-        return 3
-    fi
-    # no change if output empty
-    if [ -z "$str" ]; then
-        return 3
-    fi
-    # wrap inserted words in spaces
-    if ((ins)); then
-        str=" ${str} "
-    fi
-    # update the readline buffer
-    READLINE_LINE="${line:0:$beg}${str}${line:$end}"
-    READLINE_POINT=$((beg + ${#str}))
+    # switch on program mode
+    case "$mode" in
+        insert)
+            # run the command capturing output
+            local str=""
+            if ! str=$(eval -- "$cmd"); then
+                return 3
+            fi
+            # no change if output empty
+            if [ -z "$str" ]; then
+                return 3
+            fi
+            # update the readline buffer
+            READLINE_LINE="${before}${str}${after}"
+            ((READLINE_POINT += ${#str}))
+            ;;
+        run)
+            # run command attached to the terminal
+            eval -- "$cmd" < /dev/tty
+            ;;
+        word)
+            # run command
+            local str=""
+            if ! str=$(eval -- "$cmd"); then
+                return 3
+            fi
+            # no change if output empty
+            if [ -z "$str" ]; then
+                return 3
+            fi
+            # wrap inserted words in spaces
+            if ((ins)); then
+                str=" ${str} "
+            fi
+            # update the readline buffer
+            READLINE_LINE="${line:0:$beg}${str}${line:$end}"
+            READLINE_POINT=$((beg + ${#str}))
+            ;;
+    esac
 }
-
-# bind -x '"\C-x;":echo "$READLINE_POINT"'
 
 ###
 
 cz() {
     # version
-    local ver="0.4"
+    local ver="0.5"
     # usage
     local hows="" use=""
     read -r -d '' use <<EOF
@@ -631,6 +627,7 @@ OPTIONS
   -f FIELDS     : Set field template. This option implies mode '-q'.
   -g            : Buffer stdin and pass it to command set with '-e'.
   -i IN-FILE    : Set file from which to read selections instead of stdin.
+  -o            : Only print input lines instead of selecting a line.
   -x            : Use a graphical line selection tool.
   -y            : Use a text terminal line selection tool.
   -z TOOL       : Use the given line selection tool.
@@ -689,18 +686,20 @@ EOF
     local app="" gfx=""
     IFS=: read -r gfx app _ <<< "${CZ_GUI:-2}"
     if [ -z "$DISPLAY" ]; then gfx=0; fi
-    # accept options
+    # set options from the environment
     local tpl="${CZ_TEMPLATE}" # string template
     local fld="${CZ_FIELDS}"   # string field selection
     local mode="${CZ_MODE}"    # integer program mode
+    local help="${CZ_HELP}"    # string indicator for help requested
+    local dlm="${IFS}"         # string delimeter to split selected line
+    # set option defaults
     local inp="/dev/stdin"     # string file from which to select a line
     local buf=0                # boolean require buffered stdin for command
     local run=""               # null program mode implied by another option
     local nul=0                # boolean reading null separated lines
-    local dlm="$IFS"           # string delimeter to split selected line
-    local help="${CZ_HELP}"    # string indicator for help requested
+    # accept options
     local opt OPTIND OPTARG
-    while getopts ":d:e:f:ghHi:lkpqrsvxyz:0" opt; do
+    while getopts ":d:e:f:ghHi:lkopqrsvxyz:0" opt; do
         case "$opt" in
             d) # delimeter
                 dlm="$OPTARG"
@@ -756,6 +755,9 @@ vis-menu  https://github.com/martanne/vis
 EOF
                 printf "%s\n" "$exes"
                 return 0
+                ;;
+            o) # just print lines without selection
+                mode=-1
                 ;;
             p) # print selected line instead of running anything
                 mode=0
@@ -872,6 +874,12 @@ EOF
         # optionally require actual input lines
         if ((buf)) && ! ((${#stdin})); then return 4; fi
     fi
+
+    # maybe just dump selections
+    if (( mode < 0 )); then
+        printf "%s\n" "${lines[@]}"
+        return 0
+    fi
     # choose a line using a known program
     local out
     out=$(case "$app" in
@@ -893,19 +901,11 @@ EOF
                   printf "Unknown tool %s.\n" "$app" >&2
                   return 2
                   ;;
-          esac < <(if ((nul)); then
-                       printf "%q\n" "${lines[@]}"
-                   else
-                       printf "%s\n" "${lines[@]}"
-                   fi)
+          esac < <(printf "%s\n" "${lines[@]}")
        ) || return 4
     # require that selector succeeded and got a line
     if [ -z "$out" ]; then
         return 4
-    fi
-    # rectify shell quoted line
-    if ((nul)); then
-        out=$(eval printf "%s" "$out")
     fi
     # tokenize selected line for use in templates
     local cmd=""
@@ -960,7 +960,7 @@ function _cz() {
     mapfile -t plugs < <(cz -l)
     # cz has some options
     declare -A opts
-    for opt in -{d,e,f,h,i,l,k,p,q,r,s,v,x,y,z,0}; do opts["$opt"]=0; done
+    for opt in -{d,e,f,h,i,l,k,o,p,q,r,s,v,x,y,z,0}; do opts["$opt"]=0; done
     # scan all previous words
     local base="" last="" word="" i=0
     for ((i=1; i < "$COMP_CWORD"; i++)); do
@@ -981,8 +981,7 @@ function _cz() {
         fi
     done
     # current and previous words are given
-    local prev="${3}"
-    local curr="${2}"
+    local curr="${2}" prev="${3}"
     # maybe the previous word is a redirection
     local rd='^[&12]?[><]'
     if [[ "$prev" =~ $rd ]]; then
@@ -1230,7 +1229,7 @@ cz_bool() {
 cz bool
 Select a true or false value.
 EOF
-    cz -e 'let {0}'  -i <(printf "%s\n" "1 yes true" "0 no false")
+    cz -e 'let {2}' -f 0 -i <(printf "%s\n" "true yes 1" "false no 0")
 }
 
 declare n=""
@@ -1286,7 +1285,7 @@ Select from parent directories.
 EOF
     local d="${1:-$PWD}"
     if ! [ -d "$d" ]; then return 2; fi
-    cz -d '' -e 'cd {0}' find dir
+    cz -e 'cd {0}' find dir
 }
 
 cz_dict_strategy() {
@@ -1305,7 +1304,7 @@ Select a word from a dict server and print its definition.
 EOF
     req dict || return 5
     local qry="${1:-.*}"
-    cz -f 3: -e 'dict {3:}' -i <(dict -m -f -s re "$qry")
+    cz -f 3: -e 'dict -- {3:}' -i <(dict -m -f -s re "$qry")
 }
 
 cz_dnf_package() {
@@ -1389,7 +1388,7 @@ Select a file under DIRECTORY (or current working directory)
  with full path matching PATTERN.
 EOF
     req find || return 5
-    cz -d '' -0 -i <(find -L "${1:-.}" -iwholename "*${2}*" -type f -print0)
+    cz -d '' -0 -f '0@Q' -i <(find -L "${1:-.}" -iwholename "*${2}*" -type f -print0)
 }
 
 cz_find_dir() {
@@ -1399,7 +1398,7 @@ Select a file under DIRECTORY (or current working directory)
  with full path matching PATTERN.
 EOF
     req find || return 5
-    cz -d '' -0 -i <(find -L "${1:-.}" -iwholename "*${2}*" -type d -print0)
+    cz -d '' -0 -f '0@Q' -i <(find -L "${1:-.}" -iwholename "*${2}*" -type d -print0)
 }
 
 cz_firefox_tab() {
@@ -1669,7 +1668,7 @@ Select a Google cloud project and describe it in JSON.
 EOF
     req gcloud jq || return 5
     cz -f '0@C' -e 'gcloud --format json projects describe {0}' \
-       -i <(gcloud --format json projects list | jq -r '.[] | [.projectId, .name] | @tsv')
+       -i <(gcloud --format json projects list | jq -r '.[] | [.projectId, .projectNumber, .name] | @tsv')
 }
 
 cz_gcloud_role() {
@@ -1834,7 +1833,8 @@ EOF
     req grep || return 5
     local pat="${1:-.}"
     local dir="${2:-.}"
-    cz -d '' -f 0 -i <(grep -r -l -- "$pat" "$dir")
+    cz -d: -e "$EDITOR +{1@C} -- {0}" -f 0 \
+       -i <(grep -rn -- "$pat" "$dir")
 }
 
 cz_help() {
@@ -1892,6 +1892,15 @@ EOF
     cz -f 1 -i <(hg -R "${1:-.}" status)
 }
 
+cz_i3_bind() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz i3 bind
+Select a bindsym from the current i3 configuration.
+EOF
+    req i3-msg grep sort || return 5
+    cz -f 2: -i <(i3-msg -t get_config  | grep ^bindsym | sort)
+}
+
 cz_i3_mark() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz i3 mark
@@ -1905,9 +1914,10 @@ EOF
 cz_i3_output() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz i3 output
-Select an i3 output device.
+Select an i3 recognized output device.
 EOF
     req i3-msg jq || return 5
+    local filter=""
     read -r -d '' filter <<EOF
 .[] | select(.active)
     | [ .name,
@@ -1926,6 +1936,7 @@ cz i3 window
 Select a i3 window then move focus to that window.
 EOF
     req i3-msg jq || return 5
+    local filter=""
     read -r -d '' filter <<EOF
 .. | select(.id? and .type == "con" and .nodes == [])
    | [ (.id | tostring), .output, .name] | join(" ")
@@ -1940,6 +1951,7 @@ cz i3 workspace
 Select an i3 workspace then switch to that workspace.
 EOF
     req i3-msg jq || return 5
+    local filter=""
     read -r -d '' filter <<EOF
 .[] | [ (.num | tostring), .name, .output, if .urgent then "*" else "" end ] | join(" ")
 EOF
@@ -2038,9 +2050,9 @@ cz_jq() {
     cz jq json "$@"
 }
 
-cz_jq_json() {
+cz_jq() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz jq json [JSON-FILE] [< JSON-STREAM]
+cz jq [JSON-FILE] [< JSON-STREAM]
 Select from jq path strings for each element of the input file or stream
  then use that path to extract the JSON element.
 EOF
@@ -2049,12 +2061,12 @@ EOF
     if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
-    cz -f 0 -e "jq -r {0} $f" < <(jq -r '"." + (path(..) | map("[\(tojson)]") | join(""))' "$f")
+    cz -d '' -f 0 -e "jq -r {0} $f" < <(jq -r '"." + (path(..) | map("[\(tojson)]") | join(""))' "$f")
 }
 
-cz_jq_json_scalar() {
+cz_jq_scalar() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz jq json scalar [JSON-FILE] [< JSON-STREAM]
+cz jq scalar [JSON-FILE] [< JSON-STREAM]
 Select from jq path strings for each scalar within the input file or stream
  then use that path to extract the JSON element.
 EOF
@@ -2073,7 +2085,7 @@ EOF
  (\$v)
 ] | @tsv
 EOF
-    cz -f 0 -d $'\t' -e "jq -r {0} $f" < <(jq -r "$filter" "$f")
+    cz -d $'\t' -f 0 -e "jq -r {0} $f" < <(jq -r "$filter" "$f")
 }
 
 cz_jq_yaml() {
@@ -2091,7 +2103,7 @@ EOF
     if ! y=$(perl -MYAML -MJSON -E 'say encode_json(Load(do{local $/;<>}))' < "$f"); then
         return 5
     fi
-    cz jq json <<< "$y"
+    cz jq <<< "$y"
 }
 
 cz_kill() {
@@ -2203,19 +2215,18 @@ EOF
     cz -f 0 -i <(grep -v -e '^#' -e '^$' /etc/mime.types)
 }
 
-declare t="" f=""
-for t in artist album genre composer; do
+for t in artist album title track name genre date composer performer comment disc filename; do
     eval "
-cz_mpd_$t() {
+cz_mpd_tag_$t() {
     { hep \"\$CZ_HELP\" && return; } <<EOF
 cz mpd $t
 Select from available mpd database $t tags.
 EOF
     req mpc || return 5
-    cz -e 'mpc search $t \"{0:}\"' -i <(mpc list $t)
+    cz -d '' -f 0 -i <(mpc list $t)
 }"
 done
-unset t f
+unset t
 
 cz_mpd_output() {
     { hep "$CZ_HELP" && return; } <<EOF
@@ -2229,21 +2240,23 @@ EOF
 cz_mpd_playlist() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz mpd output
-Select an mpd output and toggle it between enabled and disabled.
+Select an mpd playlist then load it replacing the current playlist.
 EOF
     req mpc || return 5
     cz -e "mpc clear && mpc load {0} && mpc play" -i <(mpc lsplaylists)
 }
 
-cz_mpd_search() {
+cz_mpd_find() { # TODO
     { hep "$CZ_HELP" && return; } <<EOF
-cz mpd search [KIND]
+cz mpd find file [TYPE] [QUERY]
 Select an mpd tag of the given kind then select for songs matching that tag.
 EOF
     req mpc || return 5
-    local kind="${1:-$(CZ_MODE="" cz -p argv artist album genre composer)}"
+    local kind="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q mpd type)}"
     if [ -z "$kind" ]; then return 2; fi
-    cz -i <(CZ_MODE="" CZ_TEMPLATE="" cz -r mpd "$kind")
+    local query="${2:-$(CZ_MODE="" CZ_TEMPLATE="" cz -d '' -q mpd tag "$kind")}"
+    if [ -z "$query" ]; then return 2; fi
+    cz -d '' -f 0 -i <(mpc search "$kind" "$query")
 }
 
 cz_mpd_seek() {
@@ -2265,6 +2278,15 @@ EOF
     req mpc || return 5
     cz -f 0 -e "mpc play {0}" \
        -i <(hold -ept 30 -- mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
+}
+
+cz_mpd_type() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz mpd type
+Select an mpd tag typ.
+EOF
+    req mpc || return 5
+    cz argv artist album title track name genre date composer performer comment disc filename
 }
 
 cz_nss_group() {
@@ -2354,7 +2376,7 @@ EOF
 
 cz_perl_installed() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz perl module
+cz perl installed
 Select an installed perl module.
 EOF
     req perl || return 5
@@ -2451,15 +2473,16 @@ EOF
     cz -f 0 -i <(zef list -i 2>/dev/null | sed 's/:ver/ /')
 }
 
-cz_ripgrep() {
+cz_rg() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz ripgrep [PATTERN] [DIRECTORY]
+cz rg [PATTERN] [DIRECTORY]
 Select a file matching PATTERN in DIRECTORY.
 EOF
     req rg || return 5
     local pat="${1:-.}"
     local dir="${2:-.}"
-    cz -d '' -f 0 -i <(rg -l -- "$pat" "$dir")
+    cz -d: -e "$EDITOR +{1@C} -- {0}" -f 0 \
+       -i <(rg --hidden -n -- "$pat" "$dir")
 }
 
 cz_screen_session() {
@@ -2530,13 +2553,13 @@ EOF
 
 cz_systemd_system() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz systemd [TYPE]
+cz systemd system [TYPE]
 Select a systemd system unit then check its status.
 EOF
     req systemctl || return 5
     local type="$1"
     cz -f 0 -e 'systemctl status {0}' \
-       -i <(systemctl list-units  --system "${type:+--type=$type}" -l --plain --no-legend)
+       -i <(eval systemctl list-units  --system "${type:+--type=$type}" -l -a --plain --no-legend)
 }
 
 cz_systemd_type() {
@@ -2545,7 +2568,8 @@ cz systemd type
 Select a type of systemd unit.
 EOF
     req sed systemctl || return 5
-    cz -f 0 -i <(systemctl -t help | sed 1d)
+    cz -e 'systemctl list-units --type={0}' -f 0 \
+       -i <(systemctl -t help | sed 1d)
 }
 
 cz_systemd_user() {
@@ -2556,7 +2580,106 @@ EOF
     req systemctl || return 5
     local type="$1"
     cz -f 0 -e 'systemctl --user status {0}' \
-       -i <(eval systemctl list-units --user "${type:+--type='$type'}" -l --plain --no-legend)
+       -i <(eval systemctl list-units --user "${type:+--type='$type'}" -l -a --plain --no-legend)
+}
+
+cz_tar() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz tar ARCHIVE
+Select a file from a tar archive.
+EOF
+    req tar || return 5
+    local tb="$1"
+    cz -e "tar -x -f '$tb' -- {0}" -f 0 -d '' \
+       -i <(tar -t -f "$tb")
+}
+
+cz_terraform_module() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz terraform module [DIRECTORY]
+Select a terraform module call defined in the given directory.
+EOF
+    req jq terraform-config-inspect || return 5
+    local dir="${1:-.}" filter=""
+    read -r -d '' filter <<EOF
+.module_calls | to_entries[]
+  | [.key,
+     .value.source,
+     .value.pos.filename,
+     .value.pos.line] | @tsv
+EOF
+    cz -d $'\t' -f 0 -e "$EDITOR +{3@C} -- {2}" \
+       -i <(terraform-config-inspect "$dir" --json | jq -r "$filter")
+}
+
+cz_terraform_output() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz terraform output [DIRECTORY]
+Select a terraform output variable defined in the given directory.
+EOF
+    req jq terraform-config-inspect || return 5
+    local dir="${1:-.}" filter=""
+    read -r -d '' filter <<EOF
+.outputs | to_entries[]
+ | [.key,
+    .value.pos.filename,
+    .value.pos.line] | @tsv
+EOF
+    cz -d $'\t' -f 0 -e "$EDITOR +{2@C} -- {1}" \
+       -i <(terraform-config-inspect "$dir" --json | jq -r "$filter")
+}
+
+cz_terraform_provider() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz terraform output [DIRECTORY]
+Select a terraform output variable defined in the given directory.
+EOF
+    req jq terraform-config-inspect || return 5
+    local dir="${1:-.}" filter=""
+    read -r -d '' filter <<EOF
+.provider_configs | to_entries[]
+ | [.key,
+    .value.name,
+    .value.alias] | @tsv
+EOF
+    cz -d $'\t' -f 0 \
+       -i <(terraform-config-inspect "$dir" --json | jq -r "$filter")
+}
+
+cz_terraform_resource() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz terraform resource [DIRECTORY]
+Select a terraform resource defined in the given directory.
+EOF
+    req jq terraform-config-inspect || return 5
+    local dir="${1:-.}"  filter=""
+    read -r -d '' filter <<EOF
+.managed_resources | to_entries[]
+ | [.value.provider.name,
+    .key,
+    .value.pos.filename,
+    .value.pos.line] | @tsv
+EOF
+    cz  -d $'\t' -f 1 -e "$EDITOR +{3@C} -- {2}" \
+       -i <(terraform-config-inspect "$dir" --json | jq -r "$filter")
+}
+
+cz_terraform_variable() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz terraform variable [DIRECTORY]
+Select a terraform input variable defined in the given directory.
+EOF
+    req jq terraform-config-inspect || return 5
+    local dir="${1:-.}" filter=""
+    read -r -d '' filter <<EOF
+.variables | to_entries[]
+ | [.key,
+    .value.pos.filename,
+    .value.pos.line,
+    .value.description] | @tsv
+EOF
+    cz -d $'\t' -f 0 -e "$EDITOR +{2@C} -- {1}" \
+       -i <(terraform-config-inspect "$dir" --json | jq -r "$filter")
 }
 
 cz_timezone() {
@@ -2627,20 +2750,20 @@ cz_unicode() {
 
 cz_unicode_character() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz unicode character [BLOCK]
-Select a unicode character from BLOCK.
-Interactively select a block if one is not given.
+cz unicode character [SECTION]
+Select a unicode character from given character block or script.
+Interactively select a block if a section is not given.
 EOF
     req perl || return 5
-    local block="${1:-$(CZ_MODE="" CZ_FIELDS="" CZ_TEMPLATE="" cz -p unicode block)}"
-    if [ -z "$block" ]; then return 2; fi
-    cz -f 0 -d : \
-       -i <(perl -MUnicode::UCD=charinfo,charblock,charblocks \
-                 -E 'use open ":std", ":encoding(UTF-8)";' \
-                 -E 'my $b = shift; exit(1) unless %{charblocks()}{$b};' \
-                 -E 'my ($s, $e) = @{charblock($b)->[0]};' \
-                 -E 'say join ":", chr hex $_->{code}, $k, $_->{name} for map { charinfo($_) } ($s .. $e)' \
-                 "$block")
+    local part="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -p unicode block)}"
+    if [ -z "$part" ]; then return 2; fi
+    cz -d : -e "printf \$'\U{1@C}'" -f 0  \
+       -i <(perl -MUnicode::UCD=charinfo,charscript,charscripts,charblock,charblocks \
+                 -E 'use strict; use warnings; use open ":std", ":encoding(UTF-8)";' \
+                 -E 'my ($b,$s) = (charblocks(),charscripts());' \
+                 -E 'my $g = shift; my $d = $b->{$g} || $s->{$g}; exit 1 unless($d);' \
+                 -E 'for ($d->@*) { say join ":", chr hex $_->{code}, $_->{code}, $_->{name} for map { charinfo($_) } ($_->[0] .. $_->[1]); }' \
+                 "$part")
 }
 
 cz_unicode_block() {

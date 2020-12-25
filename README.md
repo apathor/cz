@@ -4,7 +4,7 @@ Cz provides a common interface to interactive line selection tools.
 
 Cz also acts as a framework for line selection based applications.
 
-Included are 160+ plugins for common use cases. Out of the box you can select from:
+Included are almost 200 plugins for common use cases. Out of the box you can select from:
 
  - everything from bash's built-in completion
  - files and directories
@@ -72,11 +72,12 @@ OPTIONS
   -s : simulate : Print the string formatted by TEMPLATE using fields from the line.
 
  General options:
-  -d DELIMITER  : Set delimiter to split selected line.
+  -d DELIMITER  : Set field splitting characters for selected line.
   -e TEMPLATE   : Set command template. This option implies mode '-r'.
   -f FIELDS     : Set field template. This option implies mode '-q'.
   -g            : Buffer stdin and pass it to command set with '-e'.
   -i IN-FILE    : Set file from which to read selections instead of stdin.
+  -o            : Only print input lines instead of selecting a line.
   -x            : Use a graphical line selection tool.
   -y            : Use a text terminal line selection tool.
   -z TOOL       : Use the given line selection tool.
@@ -89,6 +90,13 @@ TEMPLATES
      {X:}    - fields X through end of fields
      {X:Y}   - fields X through X + Y
      {X,Y,Z} - fields X, Y, and Z
+
+ Append @C, @E, @P, or @Q to transform selected fields:
+  @C - Insert argument directly. This is risky for command strings!
+  @E - Replace backslash escape sequences in arguments with bash $'...' quotes.
+  @P - Expand arguments for use in prompt strings.
+  @Q - Quote arguments for use in command input. This is the default.
+
  FIELDS consists of one of the above without the enclosing '{}'.
 
 ENVIRONMENT
@@ -96,6 +104,10 @@ ENVIRONMENT
  CZ_BINS_GUI    : list of graphical utilities in order of preference
  CZ_BINS_TTY    : list of terminal utilities in order of preference
  CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
+
+TOOLS
+ Supported line selection tools are dmenu, fzf, iselect, pick,
+  pipedial, rofi, sentaku, slmenu, and vis-menu.
 
 ```
 ## Examples
@@ -152,12 +164,39 @@ The example config defines several key bindings that each insert text into the s
  - C-x g : select an uncomitted file in current git repo and insert its path
  - C-x G : select a comitted file in current git repo and insert its path
 
-Bash users should source cz to load two functions useful for key bindings:
+Bash users should source cz to load included function 'rleval'.
 
- - rleval : insert the output of a command at cursor point in the readline buffer
- - rlword : replace the word under the cursor in the readline buffer with the output of a command
+```
+rleval [OPTIONS] COMMAND [ARGS ...]
+Evaluate command then...
+ -i : insert its output into the readline buffer at cursor point.
+ -w : replace the word at cursor point with its output.
+ -r : run the command attached to the terminal.
 
-See 'rleval -h' and 'rlword -h' for usage.
+The command string is templated using the current readline tokens.
+The word at cursor point is '{0}'. The first token in the command is '{1}' and so on.
+This function is intended to be used with the bash builtin 'bind -x'.
+
+EXAMPLES
+ Insert the first token from the current readline buffer:
+ $ bind -x '"\C-x0":rleval -i echo {1}'
+
+ Insert fortunes on demand:
+ $ bind -x '"\C-xf":rleval -i fortune"'
+
+ Replace the current word with a generated password:
+ $ bind -x '"\C-xp":rleval -w pwgen 20 1'
+
+ Replace the current word with itself reversed:
+ $ bind -x '"\C-xt":rleval -w "rev <<< {0}"'
+
+ Encode and decode base64 strings at cursor point:
+ $ bind -x '"\C-xb":rleval -w "base64 <<< {0}"'
+ $ bind -x '"\C-xB":rleval -w "base64 -d <<< {0}"'
+
+ Open the man page for the topic at cursor point:
+ $ bind -x '"\C-xh":rleval -r man {0}'
+```
 
 ### Zsh
 
