@@ -4,7 +4,7 @@ Cz provides a common interface to interactive line selection tools.
 
 Cz also acts as a framework for line selection based applications.
 
-Included are almost 200 plugins for common use cases. Out of the box you can select from:
+Included are over 200 plugins for common use cases. Out of the box you can select from:
 
  - everything from bash's built-in completion
  - files and directories
@@ -17,6 +17,7 @@ Included are almost 200 plugins for common use cases. Out of the box you can sel
  - docker images
  - system processes
  - i3 window manager components
+ - terraform resources
 
 And a whole lot more!
 
@@ -25,10 +26,12 @@ And a whole lot more!
 Cz suports the following line selection tools:
  - [dmenu](https://tools.suckless.org/dmenu)
  - [fzf](https://github.com/junegunn/fzf)
+ - [fzy](https://github.com/jhawthorn/fzy)
  - [iselect](http://www.ossp.org/pkg/tool/iselect)
  - [pick](https://github.com/mptre/pick)
  - [pipedial](https://code.reversed.top/user/xaizek/pipedial)
  - [rofi](https://github.com/davatorium/rofi)
+ - [selecta](https://github.com/garybernhardt/selecta)
  - [sentaku](https://github.com/rcmdnk/sentaku)
  - [slmenu](https://bitbucket.org/rafaelgg/slmenu) (defunct?)
  - [vis-menu](https://github.com/martanne/vis)
@@ -52,7 +55,7 @@ It is assumed that at least one of the line selection tools listed above is also
 
 ```
 cz [OPTIONS] < LINES
-Select a line from input with an available tool.
+Select a line from input interactively.
 
 cz [OPTIONS] [PLUGIN] [ARGS ...]
 Run a plugin to select something application specific.
@@ -65,13 +68,14 @@ OPTIONS
   -l : plugins  : List detected plugins.
   -v : version  : Print version string.
 
- These options set program mode. Select a line then...
+ These options set the program mode. Select a line then...
   -p : print    : Print the line. This is the default mode.
-  -q : quote    : Print extracted FIELDS from the line.
-  -r : run      : Run the string formatted by TEMPLATE using fields from the line.
-  -s : simulate : Print the string formatted by TEMPLATE using fields from the line.
+  -q : quote    : Print fields extracted from the line.
+  -r : run      : Run a command templated with fields from the line.
+  -s : simulate : Print a string templated with fields from the line.
 
  General options:
+  -c            : Use newly generated input not cached lines.
   -d DELIMITER  : Set field splitting characters for selected line.
   -e TEMPLATE   : Set command template. This option implies mode '-r'.
   -f FIELDS     : Set field template. This option implies mode '-q'.
@@ -79,9 +83,14 @@ OPTIONS
   -i IN-FILE    : Set file from which to read selections instead of stdin.
   -o            : Only print input lines instead of selecting a line.
   -x            : Use a graphical line selection tool.
-  -y            : Use a text terminal line selection tool.
+  -y            : Use a terminal line selection tool.
   -z TOOL       : Use the given line selection tool.
   -0            : Read null terminated lines from input.
+
+TOOLS
+ Cz provides a common interface to multiple interactive line selection tools.
+ The suported tools are dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta,
+  sentaku, slmenu, and vis-menu.
 
 TEMPLATES
  Substrings of TEMPLATE in the following formats are replaced with
@@ -105,9 +114,9 @@ ENVIRONMENT
  CZ_BINS_TTY    : list of terminal utilities in order of preference
  CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
 
-TOOLS
- Supported line selection tools are dmenu, fzf, iselect, pick,
-  pipedial, rofi, sentaku, slmenu, and vis-menu.
+EXAMPLES
+ Compose plugins to get any file under an apparix bookmarked directory.
+ $ cz -e 'cz -q find file {1}' apparix
 
 ```
 ## Examples
@@ -266,4 +275,12 @@ open(my $pipe, "|-", "cz -f 1");
 print $pipe $_ for map { sprintf "%d %d\n", $_, 2 ** $_ } (1..32);
 close($pipe);
 
+```
+
+
+## Name
+```
+seize
+To fall or rush upon suddenly and lay hold of; to gripe or grasp suddenly; 
+*to reach and grasp*.
 ```

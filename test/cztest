@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# unit tests for cz
+
+# setup test directory
+if ! TEST_DIR="$(mktemp -d /tmp/cztest-XXX)"; then
+    printf "Could not make test temp directory %s\n" "$TEST_DIR"
+    exit 1
+fi
+
+# include cz
+if ! . cz; then
+    printf "Could not source cz\n"
+    exit 1
+fi
+
+# lets define some simple testing utils
+TESTS=0
+FAILS=0
+
+assert_equal() {
+    (( TESTS++ ))
+    local msg="$1"
+    local have="$2"
+    local want="$3"
+    if ! [[ "$want" == "$have" ]]; then
+        printf "FAIL %s\n want: %s\n have: %s\n" "$msg" "$want" "$have"
+        (( FAILS++ ))
+        return 1
+    fi
+}
+
+assert_exists() {
+    (( TESTS++ ))
+    local msg="$1"
+    local want="$2"
+    if ! [ -e "$want" ]; then
+        printf "FAIL %s\n missing: %s\n" "$want"
+        (( FAILS++ ))
+        return 1
+    fi
+}
+
+# nth unit tests
+assert_equal "nth handles empty templates" \
+             "$(nth "")"  ""
+
+assert_equal "nth passes normal text through" \
+             "$(nth "foo bar")"  "foo bar"
+
+assert_equal "nth templates single fields" \
+             "$(nth -c "_{0}_" hey)" "_hey_"
+
+assert_equal "nth templates multiple fields" \
+             "$(nth -p "{2,25}" {A..Z})" "C Z"
+
+assert_equal "nth quotes a slice of fields" \
+             "$(nth -q "{0:}" foo bar baz)" "'foo' 'bar' 'baz'"
+
+assert_equal "nth templates slice plus single field" \
+             "$(nth -c "{1:3,0,4}" a b c d e)" "b c d a e"
+
+assert_equal "nth template vars can reformat fields" \
+             "$(nth "{1@Q} {0@P}" "a b" "c d")" "'c d' a b"
+
+assert_equal "nth preserves template spacing" \
+             "$(nth "({2,1})" w x y z)" "('y' 'x')"
+
+assert_equal "nth makes command quoting easy" \
+             "$(nth "grep -e {0} somefile" "\$danger")" "grep -e '\$danger' somefile"
+
+# hold unit tests
+HOLD_DIR="$TEST_DIR/hold"
+if ! mkdir -p "$HOLD_DIR"; then
+    printf "Could not make cache directory %s\n" "$HOLD_DIR"
+    exit 1
+fi
+
+assert_exists "hold makes cache files" \
+              "$(hold -e -n t1 printf "%s\n" "foo")"
+
+assert_equal "hold caches command output" \
+             "$(hold -e -p -n t2 printf "%s\n" "bar")" "bar"
+
+assert_equal "hold caches file content" \
+             "$(hold -f -p -n t3 "$0")" "$(< "$0")"
+
+assert_equal "hold can operate quietly" \
+             "$(hold -e -q -n t4 printf "%s\n" "qux")" ""
+
+assert_equal "hold retrieves cached data" \
+             "$(hold -e -q -n t5 printf "%s\n" "hey"; hold -g -p -n t5)" "hey"
+
+assert_equal "hold expires cached data based on time" \
+             "$(hold -f -q -n t6 - <<< "bleh"; sleep 3; hold -g -t 2 -n t6)" ""
+
+# summary
+if (( FAILS )); then
+    printf "FAIL %d/%d" "$FAILS" "$TESTS"
+else
+    printf "PASS %d/%d\n" "$TESTS" "$TESTS"
+fi
