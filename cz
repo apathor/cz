@@ -65,11 +65,11 @@ EOF
 hep() {
     read -r -d '' use <<EOF
 hep TOGGLE < INPUT > OUTPUT
-Print input text if TOGGLE is non-empty, otherwise fail.
+Print input text if the first argument is non-empty, otherwise fail.
 Use this function to optionally print help text in other functions.
 For example: { hep "\$HELP_TOGGLE" && return; } <<<EOF ...
 EOF
-    # no option but help
+    # no real options
     local opt OPTIND OPTARG
     while getopts ":h" opt; do
         case "$opt" in
@@ -80,7 +80,7 @@ EOF
         esac
     done
     shift $((OPTIND - 1))
-    # let input through if given an argument
+    # print input if given a non-empty argument
     if [ -n "$1" ]; then
         printf "%s\n" "$(< /dev/stdin)" >&2
     else
@@ -260,6 +260,39 @@ EOF
     return "$rc"
 }
 
+insulate() {
+    read -r -d '' use <<EOF
+insulate PATTERN COMMAND [ARG...]
+Run the given command without environment variables matching the given pattern.
+EOF
+    # no options just help
+    local opt OPTIND OPTARG
+    while getopts ":h" opt; do
+        case "$opt" in
+            *)
+                printf "%s\n" "$use" >&2
+                return 1
+                ;;
+        esac
+    done
+    # some arguments are required
+    if (($# < 2 )); then
+        printf "%s\n" "$use" >&2
+        return 1
+    fi
+    # accept pattern argument
+    local p="$1"
+    shift
+    # filter environment variables
+    while read -r v; do
+        if [[ "$v" =~ $p ]]; then
+            unset "$v"
+        fi
+    done < <(compgen -v)
+    # run the given command in this modified environment
+    eval "$@"
+}
+
 nth() {
     read -r -d '' use <<EOF
 nth [OPTIONS] TEMPLATE [ARG ...]
@@ -373,7 +406,7 @@ EOF
                     ;;&
                 '}') # end variable
                     mode="text"
-                    # add selected fields to output
+                    # reformat field with global or per-variable format
                     local more=""
                     fmt="${fmt:-$pto}"
                     if [ "$fmt" == "C" ]; then
@@ -455,13 +488,14 @@ EOF
 rleval() {
     read -r -d '' use <<EOF
 rleval [OPTIONS] COMMAND [ARGS ...]
-Template given command with tokens from the readline buffer then...
- -i : insert its output into the readline buffer at cursor point.
+In bash readline context, evaluate the given command then...
+ -i : insert its output at cursor point. This is the default mode.
  -w : replace the word at cursor point with its output.
- -r : run the command attached to the terminal.
+ -r : change nothing and attach the command to the terminal.
 
 This function is intended to be used with the bash builtin 'bind -x'.
-The command is templated with the function 'nth'. See 'nth -h'.
+The command is templated with the function 'nth' using tokens from the readline
+buffer. See 'nth -h' for more information.
 The string '{0}' is replaced with the word at cursor point.
 The string '{N}' is replaced with the token at numeric index N starting at 1.
 
@@ -501,7 +535,7 @@ EOF
     done
     shift $((OPTIND - 1))
     # require command argument
-    local args="$*"
+    local args=("$@")
     if ! (($#)); then
         printf "%s\n" "$use" >&2
         return 1
@@ -547,18 +581,16 @@ EOF
         # grab the word
         word="${line:$beg:$(( end - beg ))}"
     fi
-    # tokenize current readline line
-    local toks=()
-    read -r -a toks <<< "$line"
     # render the command template
     local cmd=""
-    if ! cmd=$(nth "$args" "${word/#\~/$HOME}" "${toks[@]/#\~/$HOME}"); then
+    tmpl="${args[*]}"
+    if ! cmd=$(nth "${tmpl}" "${word/#\~/$HOME}" "${toks[@]/#\~/$HOME}"); then
         return 2
     fi
     # switch on program mode
     case "$mode" in
         insert)
-            # run the command capturing output
+            # run the command, capturing output
             local str=""
             if ! str=$(eval -- "$cmd"); then
                 return 3
@@ -576,7 +608,7 @@ EOF
             eval -- "$cmd" < /dev/tty
             ;;
         word)
-            # run command
+            # run the command, capturing output
             local str=""
             if ! str=$(eval -- "$cmd"); then
                 return 3
@@ -600,7 +632,7 @@ EOF
 
 cz() {
     # version
-    local ver="0.6"
+    local ver="0.6.3"
     # usage
     local hows="" use=""
     read -r -d '' use <<EOF
@@ -612,11 +644,11 @@ Run a plugin to select something application specific.
 
 OPTIONS
  These options print some information and exit:
-  -h : help     : Print this help text or help text for plugin.
-  -H : example  : Print a bunch of example commands.
+  -h : help     : Show this help text or help text for plugin.
+  -H : example  : List example commands.
   -k : tools    : List supported line selection tools.
   -l : plugins  : List detected plugins.
-  -v : version  : Print version string.
+  -v : version  : Show version string.
 
  These options set the program mode. Select a line then...
   -p : print    : Print the line. This is the default mode.
@@ -678,7 +710,7 @@ Jump to any descendant directory.:$ cd \$(cz find dir)
 Grab a URL from a paste buffer and open it in a browser.:$ cz xclip out | cz -e 'firefox {0}' uri
 Compose plugins to get the contents of any element from any JSON file.:$ cz -e 'cz jq {0}' locate *.json
 Compose plugins to get any file under an apparix bookmarked directory.:$ cz -e 'cz -q find file {1}' apparix
-Find a file then open it for editing:$ find . -type f -print0 | cz -0 -r -e 'vim {0}' 
+Find a file then open it for editing:$ find . -type f -print0 | cz -0 -r -e 'vim {0}'
 EOF
     # supported tools
     read -r -d '' exes <<EOF
@@ -707,11 +739,11 @@ EOF
     IFS=: read -r gfx app _ <<< "${CZ_GUI:-2}"
     if [ -z "$DISPLAY" ]; then gfx=0; fi
     # set options from the environment
-    local tpl="${CZ_TEMPLATE}" # string template
-    local fld="${CZ_FIELDS}"   # string field selection
-    local mode="${CZ_MODE}"    # integer program mode
-    local help="${CZ_HELP}"    # string indicator for help requested
-    local dlm="${IFS}"         # string delimeter to split selected line
+    local tpl="${CZ_TEMPLATE}"    # string template
+    local fld="${CZ_FIELDS}"      # string field selection
+    local mode="${CZ_MODE}"       # integer program mode
+    local help="${CZ_HELP}"       # string indicator for help requested
+    local dlm="${CZ_DELIM:-$IFS}" # string delimeter to split selected line
     # set option defaults
     local inp="/dev/stdin"     # string file from which to select a line
     local buf=0                # boolean require buffered stdin for command
@@ -733,7 +765,7 @@ EOF
                 run=2
                 ;;
             f) # set fields to be extracted
-                fld="${fld:-${OPTARG}}"
+                fld="${fld:-$OPTARG}"
                 run=1
                 ;;
             g) # enable buffered stdin for command
@@ -746,7 +778,6 @@ EOF
                 local ind
                 for ((ind=0; ind < "${#hows[@]}"; ind++)); do
                     IFS=: read -r des exp <<< "${hows[$ind]}"
-
                     printf "%s\n%s\n\n" "$des" "$exp"
                 done
                 return 0
@@ -830,14 +861,14 @@ EOF
             fi
         done
         app="$got"
-        # no tools found
+        # no tool found
         if [ -z "$got" ]; then
             printf "No line selection tools found!\nTry installing one of these:\n" >&2
             printf "%s\n" "${tools[@]}" | sort >&2
             return 5
         fi
     fi
-    # program mode might have been implied
+    # the program mode might have been implied by other options
     mode="${mode:-$run}"
     # plugins - any command in the format 'cz_$WORD'
     if [ -n "$*" ]; then
@@ -856,16 +887,14 @@ EOF
         fi
         shift "$word"
         # run the plugin with override environment variables
-        (
-            export CZ_GUI="${gfx}:${app}"
-            export CZ_HELP="$help"
-            export CZ_MODE="$mode"
-            export CZ_FIELDS="$fld"
-            export CZ_TEMPLATE="$tpl"
-            export HOLD_CLEAR="$clr"
-            "$plug" "$@"
-        )
-        echo "$CZ_TEMPLATE"
+        CZ_GUI="${gfx}:${app}" \
+              CZ_DELIM="$dlm" \
+              CZ_HELP="$help" \
+              CZ_MODE="$mode" \
+              CZ_FIELDS="$fld" \
+              CZ_TEMPLATE="$tpl" \
+              HOLD_CLEAR="$clr" \
+              "$plug" "$@"
         return $?
     fi
     # maybe help was requested
@@ -873,7 +902,7 @@ EOF
         printf "%s\n" "$use" >&2
         return
     fi
-    # read selection file
+    # read the selection file
     declare -a lines
     declare -a items
     if ((nul)); then
@@ -883,20 +912,19 @@ EOF
         mapfile -t lines < "$inp"
         mapfile -t items < <(printf "%s\n" "${lines[@]}")
     fi
-
     # require at least one non-empty line
-    if ! (("${#lines[@]}")); then
+    if ! (("${#items[@]}")); then
         return 3
     fi
     # buffer stdin if reading selection input from another file
-    # this is needed to pass input to templated commands
+    # this is needed to pass pipe input to plugin commands
     declare -a stdin
     if [[ "$inp" != "/dev/stdin" ]] && ! [ -t 0 ]; then
         mapfile -t stdin
         # optionally require actual input lines
         if ((buf)) && ! ((${#stdin})); then return 4; fi
     fi
-    # maybe just dump selections
+    # maybe just write selections to stdout
     if (( mode < 0 )); then
         printf "%s\n" "${items[@]}"
         return 0
@@ -958,24 +986,17 @@ EOF
                 printf "Failed to parse template: %s\n" "$tpl" >&2
                 return 5
             fi
-            (
-                # reset environment for possible nested call
-                export CZ_MODE=""
-                export CZ_FIELDS=""
-                export CZ_TEMPLATE=""
-                export CZ_GUI="${gfx}:${app}"
-                # eval the command
-                if ((${#stdin})); then
-                    # maybe pass buffered input
-                    eval "$cmd" < <(printf "%s\n" "${stdin[@]}")
-                elif [ -n "$PS1" ]; then
-                    # if interactive ensure terminal is attached
-                    eval "$cmd" < /dev/tty
-                else
-                    # non-interactive mode has no terminal
-                    eval "$cmd"
-                fi
-            )
+            # eval the command
+            if ((${#stdin})); then
+                # maybe pass buffered input
+                insulate ^CZ_ CZ_GUI="${gfx}:${app}" "$cmd" < <(printf "%s\n" "${stdin[@]}")
+            elif [ -n "$PS1" ]; then
+                # if interactive ensure terminal is attached
+                insulate ^CZ_ CZ_GUI="${gfx}:${app}" "$cmd" < /dev/tty
+            else
+                # non-interactive mode has no terminal
+                insulate ^CZ_ CZ_GUI="${gfx}:${app}" "$cmd"
+            fi
             return $?
             ;;
         3) # template the command string and print it
@@ -1070,14 +1091,16 @@ cz_meta() {
 cz meta [MODE-OPTION] [PREFIX]
 Select a cz plugin and run it in the given mode.
 The mode options are -p -q -r -s. The default mode is -p.
+Given a prefix selections are limited to matching plugins.
+
 This plugin is best used bound to a key, providing a quick
  interface to every other cz plugin.
 
 EXAMPLES
- $ bind -x '"\C-xx":rleval "cz meta -q"' # insert field
- $ bind -x '"\C-xX":rleval "cz meta -p"' # insert line
- $ bind -x '"\C-xz":rleval "cz meta -r"' # insert command output
- $ bind -x '"\C-xZ":rleval "cz meta -s"' # insert command
+ $ bind -x '"\C-xx":rleval cz meta -q' # insert field
+ $ bind -x '"\C-xX":rleval cz meta -p' # insert line
+ $ bind -x '"\C-xz":rleval cz meta -r' # insert command output
+ $ bind -x '"\C-xZ":rleval cz meta -s' # insert command
 EOF
     local mode="-p"
     local opt OPTIND OPTARG
@@ -1093,7 +1116,7 @@ EOF
         esac
     done
     shift $((OPTIND - 1))
-    cz -f 0 -e "cz ${mode} {0}" -i <(compgen -W "$(cz -l)" -- "$1")
+    cz -f 0 -e "cz $mode {0}" -i <(compgen -W "$(cz -l)" -- "$1")
 }
 
 ####
@@ -1182,17 +1205,6 @@ EOF
     cz -f 1 -i <(apparix | awk '/^j/ { print $2, $3 }')
 }
 
-cz_apparix_file() {
-    { hep "$CZ_HELP" && return; } <<EOF
-cz apparix file
-Select from files within selected apparix bookmark directory.
-EOF
-    local dir
-    dir="$(CZ_MODE="" CZ_FIELDS="" cz -q apparix)"
-    if [ -z "$dir" ]; then return 2; fi
-    cz find file "$dir"
-}
-
 cz_apt_package() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz apt package [QUERY]
@@ -1201,7 +1213,7 @@ EOF
     req apt-cache || return 5
     local qry="${*:-.}"
     cz -f 0 -e 'apt-cache show {0}' \
-       -i <(apt-cache search "$qry")
+       -i <(hold -ept 3600 -- apt-cache search "$qry")
 }
 
 cz_apt_installed() {
@@ -1236,7 +1248,7 @@ cz_bash_bind_key() {
 cz bash bind key
 Select from bash key bindings.
 EOF
-    cz -d : -f 0 -i <({ bind -p; bind -X; bind -s; } | grep -v '^#')
+    cz -d : -f 0 -i <(grep -a -v ^# <( bind -p; bind -X; bind -s; ))
 }
 
 cz_bash_completion() {
@@ -1407,7 +1419,7 @@ cz docker container
 Select a docker container.
 EOF
     req docker sed || return 5
-    cz -f 0 -e 'docker inspect {0}' \
+    cz -f 0 -e 'docker container inspect {0}' \
        -i <(docker container ls -a | sed 1d)
 }
 
@@ -1417,7 +1429,7 @@ cz docker image
 Select a docker image.
 EOF
     req docker sed || return 5
-    cz -f 2 -e 'docker inspect {2}' \
+    cz -f 2 -e 'docker image inspect {2}' \
        -i <(docker images -a | sed 1d)
 }
 
@@ -1565,6 +1577,10 @@ EOF
     cz -f 0 -e 'flatpak info {0}' -i <(flatpak list --runtime)
 }
 
+cz_gcloud() {
+    cz meta gcloud
+}
+
 cz_gcloud_auth() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud auth
@@ -1589,7 +1605,7 @@ cz gcloud bucket file [BUCKET]
 Select a file from a google cloud storage bucket.
 EOF
     req gsutil || return 5
-    local b="${1:-$(CZ_FIELDS="" CZ_MODE="" cz -q gcloud bucket)}"
+    local b="${1:-$(insulate ^CZ_ cz -q gcloud bucket)}"
     if [ -z "$b" ]; then return 2; fi
     cz -f 2 -i <(gsutil ls -lr "$b"'**' | sed '$d')
 }
@@ -1597,10 +1613,10 @@ EOF
 cz_gcloud_bq_dataset() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud bq dataset [PROJECT]
-Select a Google Bigquery dataset from PROJECT and describe it in JSON.
+Select a Google BigQuery dataset and describe it in JSON.
 EOF
     req bq jq || return 5
-    local proj="${1:-$(CZ_FIELDS="" CZ_MODE="" cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     cz -f 0 -i <(bq --format json --project_id "$proj" ls | \
                      jq -r '.[] | [.id, (.datasetReference | (.datasetId, .projectId)), .location] | @tsv')
 }
@@ -1608,14 +1624,14 @@ EOF
 cz_gcloud_bq_table() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud bq table [PROJECT] [DATASET]
-Select a Google Bigquery table from DATASET in PROJECT and describe it in JSON.
+Select a Google BigQuery table from a dataset and describe it in JSON.
 EOF
     req bq jq || return 5
-    local proj="${1:-$(cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     if [ -z "$proj" ]; then
         return 2
     fi
-    local ds="${2:-$(cz -q gcloud bq dataset "$proj")}"
+    local ds="${2:-$(insulate ^CZ_ cz -q gcloud bq dataset "${proj@Q}")}"
     if [ -z "$ds" ]; then
         return 2
     fi
@@ -1626,10 +1642,10 @@ EOF
 cz_gcloud_compute_disk() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud compute disk [PROJECT]
-Select a Google cloud compute disk in PROJECT and describe it in JSON.
+Select a Google cloud compute disk and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 1 -e "gcloud --project ${proj@Q} --format=json compute disks describe --zone {2} {1}" \
        -i <(gcloud --project "$proj" --format=json compute disks list \
@@ -1639,10 +1655,10 @@ EOF
 cz_gcloud_compute_image() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud compute image [PROJECT]
-Select a Google cloud compute image in PROJECT and describe it in JSON.
+Select a Google cloud compute image and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json compute images describe {0} " \
        -i <(gcloud --project "$proj" --format json compute images list | \
@@ -1652,10 +1668,10 @@ EOF
 cz_gcloud_compute_instance() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud compute instance [PROJECT]
-Select a Google cloud compute instance in PROJECT and describe it in JSON.
+Select a Google cloud compute instance and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 1 -e "gcloud --project ${proj@Q} --format json compute instances describe --zone {2} {1}" \
        -i <(gcloud --project "$proj" --format json compute instances list \
@@ -1665,10 +1681,10 @@ EOF
 cz_gcloud_compute_network() {
         { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud compute network [PROJECT]
-Select a Google cloud network in PROJECT and describe it in JSON.
+Select a Google cloud network and describe it in JSON.
 EOF
         req gcloud jq || return 5
-        local proj="${1:-$(cz -q gcloud project)}"
+        local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
         if [ -z "$proj" ]; then return 2; fi
         cz -f 0 -e "gcloud --project ${proj@Q} --format json compute networks describe {0}" \
            -i <(gcloud --project "$proj" --format json compute networks list \
@@ -1692,8 +1708,8 @@ cz gcloud compute snapshot
 Select a Google cloud disk snapshot and describe it in JSON.
 EOF
         req gcloud jq || return 5
-        local proj="${1:-$(cz -q gcloud project)}"
-        if [ -z "$proj" ]; then return 2; fi
+        local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
+        if [ -z "${proj@Q}" ]; then return 2; fi
         cz -f 1 -e "gcloud --project ${proj@Q} compute snapshots describe {1}" \
            -i <(gcloud --project "$proj" --format=json compute snapshots list \
                     | jq -r '.[] | [.id, .name, .status] | @tsv')
@@ -1702,10 +1718,10 @@ EOF
 cz_gcloud_compute_subnet() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud subnet [PROJECT]
-Select a Google cloud subnet from PROJECT and describe it in JSON.
+Select a Google cloud subnet and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 2 -e "gcloud --project ${proj@Q} --format json compute networks subnets describe {2}" \
        -i <(gcloud --project "$proj" --format json compute networks subnets list \
@@ -1726,11 +1742,11 @@ EOF
 cz_gcloud_dns_record() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud compute image [PROJECT] [ZONE]
-Select a Google cloud DNS record in PROJECT and describe it in JSON.
+Select a Google cloud DNS record and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud project)}"
-    local zone="${2:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud dns zone)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
+    local zone="${2:-$(insulate ^CZ_ cz -q gcloud dns zone)}"
     if [ -z "$proj" ] || [ -z "$zone" ]; then return 2; fi
     cz -f 0,1 \
        -i <(gcloud --project "$proj" --format json dns record-sets list -z "$zone" | \
@@ -1740,10 +1756,10 @@ EOF
 cz_gcloud_dns_zone() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud dns zone [PROJECT]
-Select a Google cloud DNS zone in PROJECT and describe it in JSON.
+Select a Google cloud DNS zone and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json dns managed-zones describe {0}" \
        -i <(gcloud --project "$proj" --format json dns managed-zones list | \
@@ -1766,35 +1782,24 @@ cz_gcloud_log() {
 cz gcloud log [PROJECT]
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
-    cz -f 0 -i <(gcloud --format=json --project "${proj}" logging logs list | jq -r '.[]')
-}
-
-cz_gcloud_log_entry() {
-    { hep "$CZ_HELP" && return; } <<EOF
-cz gcloud log entry [PROJECT]
-EOF
-    req gcloud jq || return 5
-    local proj="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud project)}"
-    if [ -z "$proj" ]; then return 2; fi
-    local log="${2:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud log "$proj")}"
-    if [ -z "$log" ]; then return 2; fi
-
+    cz -f 0 -e "gcloud logging read 'logName : {0}' --project=${proj@Q} --limit 10 --format=json" \
+       -i <(gcloud --format=json --project "$proj" logging logs list | jq -r '.[]')
 }
 
 cz_gcloud_permission() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud permission [RESOURCE]
 Select a Google cloud permission and describe it in JSON.
-If a RESOURCE URL argument is given only list applicable permissions.
+If a resource URL argument is given only list applicable permissions.
 By default list all permissions on the selected organization.
 EOF
     req gcloud jq || return 5
     local url="${1}"
     if [ -z "$url" ]; then
         local org=""
-        if org=$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud organization); then
+        if org=$(insulate ^CZ_ cz -q gcloud organization); then
             url="//cloudresourcemanager.googleapis.com/$org"
         else
             return 2
@@ -1808,26 +1813,26 @@ EOF
 cz_gcloud_pubsub_subscription() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud pubsub subscription [PROJECT]
-Select a Google pubsub subscription in PROJECT and describe it in JSON.
+Select a Google pubsub subscription and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json pubsub subscription describe {0}" \
-       -i <(gcloud pubsub subscriptions list --format=json | \
+       -i <(gcloud --project "$proj" pubsub subscriptions list --format=json | \
                 jq -r '.[] | [(.name | split("/") | .[-1]), (.topic | split("/") | .[-1]) ] | @tsv')
 }
 
 cz_gcloud_pubsub_topic() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud pubsub topic [PROJECT]
-Select a Google pubsub topic in PROJECT and describe it in JSON.
+Select a Google pubsub topic and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json pubsub topic describe {0}" \
-       -i <(gcloud pubsub topics list --format=json | \
+       -i <(gcloud --project "$proj" pubsub topics list --format=json | \
                 jq -r '.[] | [.name | split("/") | .[-1] ] | @tsv')
 }
 
@@ -1838,16 +1843,17 @@ Select a Google cloud project and describe it in JSON.
 EOF
     req gcloud jq || return 5
     cz -f '0@C' -e 'gcloud --format json projects describe {0}' \
-       -i <(gcloud --format json projects list | jq -r '.[] | [.projectId, .projectNumber, .name] | @tsv')
+       -i <(gcloud --format json projects list | \
+                jq -r '.[] | [.projectId, .projectNumber, .name] | @tsv')
 }
 
 cz_gcloud_role() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud role [PROJECT]
-Select a Google cloud IAM role from PROJECT and describe it in JSON.
+Select a Google cloud IAM role and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json iam roles describe {0}" \
        -i <(gcloud --project "$proj" --format json iam roles list | \
@@ -1857,10 +1863,10 @@ EOF
 cz_gcloud_serviceaccount() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz gcloud serviceaccount [PROJECT]
-Select a Google cloud service account from PROJECT and describe it in JSON.
+Select a Google cloud service account and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(cz -q gcloud project)}"
+    local proj="${1:-$(insulate ^CZ_ cz -q gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json iam service-accounts describe {0}" \
        -i <(gcloud --project "$proj" --format json iam service-accounts list | \
@@ -1917,9 +1923,8 @@ EOF
         'system') args+=('--system') ;;
         *) printf "Unknown config location: %s\n" "$scope" >&2; return 2 ;;
     esac
-
     cz -d '=' -f 0 -e "git config ${args[*]} --get {0}" \
-       -i <(git config "${args[*]}" -l)
+       -i <(eval git config "${args[*]}" -l)
 }
 
 cz_git_diff() {
@@ -1930,7 +1935,8 @@ branch. If unspecified the branch will be selected interactively.
 EOF
     req git || return 5
     local repo="${1:-.}"
-    local branch="${2:-$(cz -q git branch "$repo")}"
+    local branch="${2:-$(insulate ^CZ_ cz -q git branch "$repo")}"
+    if [ -z "$branch" ]; then return 2; fi
     cz -f 0 -e "git -C '$repo' diff '$branch' -- {0}" \
        -i <(git -C "$repo" diff --name-only "$branch")
 }
@@ -1959,15 +1965,6 @@ EOF
 cz_git_commit() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz git commit [DIRECTORY] [FILE]
-Select a commit from the history of the git repository in DIRECTORY.
-Given FILE, select a commit that modified that file.
-EOF
-    req git || return 5
-}
-
-cz_git_log() {
-    { hep "$CZ_HELP" && return; } <<EOF
-cz git log [DIRECTORY] [FILE]
 Select a commit from the history of the git repository in DIRECTORY.
 Given FILE, select a commit that modified that file.
 EOF
@@ -2083,6 +2080,32 @@ Select a modified file in the hg repository in DIRECTORY.
 EOF
     req hg || return 5
     cz -f 1 -i <(hg -R "${1:-.}" status)
+}
+
+cz_html_element() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz html element [HTML-FILE] [< HTML-STREAM]
+Select a HTML element by xpath string and print it.
+EOF
+    req xmllint || return 5
+    local f=""
+    if ! f=$(hold -fx "${1:--}"); then
+        return 4
+    fi
+    xmllint --html --xmlout "$f" 2>/dev/null | cz xml element
+}
+
+cz_html_value() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz html value [FILE] [< STREAM]
+Select a HTML element by xpath string and extract its contents.
+EOF
+    req xmllint || return 5
+    local f=""
+    if ! f=$(hold -fx "${1:--}"); then
+        return 4
+    fi
+    xmllint --html --xmlout "$f" 2>/dev/null | cz xml value
 }
 
 cz_i3_bind() {
@@ -2263,7 +2286,7 @@ EOF
  (\$v)
 ] | @tsv
 EOF
-    cz -d $'\t' -f 0 -e "jq -r {0} $f" < <(jq -r "$filter" "$f")
+    cz -d $'\t' -f 0 -e "jq -r {0} ${f@Q}" < <(jq -r "$filter" "$f")
 }
 
 cz_jq_yaml() {
@@ -2414,9 +2437,9 @@ cz mpd find file [TYPE] [QUERY]
 Select an mpd tag of the given kind then select for songs matching that tag.
 EOF
     req mpc || return 5
-    local kind="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -q mpd type)}"
+    local kind="${1:-$(insulate ^CZ_ cz -q mpd type)}"
     if [ -z "$kind" ]; then return 2; fi
-    local query="${2:-$(CZ_MODE="" CZ_TEMPLATE="" cz -d '' -q mpd tag "$kind")}"
+    local query="${2:-$(insulate ^CZ_ cz -d '' -q mpd tag "$kind")}"
     if [ -z "$query" ]; then return 2; fi
     cz -d '' -f 0 -i <(mpc search "$kind" "$query")
 }
@@ -2926,7 +2949,7 @@ EOF
 
 cz_tmux_window() {
     { hep "$CZ_HELP" && return; } <<EOF
-cz tmux session
+cz tmux window
 Select a tmux window then switch to it.
 EOF
     req tmux || return 5
@@ -3074,7 +3097,7 @@ EOF
     if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
-    cz -d '' -f 0 -e "xmlstarlet sel -B -t -c {0} $f" < <(xmlstarlet el -v "$f")
+    cz -d '' -f 0 -e "xmlstarlet sel -B -t -c {0} ${f@Q}" < <(xmlstarlet el -v "$f")
 }
 
 cz_xml_value() {
@@ -3087,7 +3110,7 @@ EOF
     if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
-    cz -d '' -f 0 -e "xmlstarlet sel -B -t -v {0} $f" < <(xmlstarlet el -v "$f")
+    cz -d '' -f 0 -e "xmlstarlet sel -B -t -v {0} ${f@Q}" < <(xmlstarlet el -v "$f")
 }
 
 cz_xrandr_monitor() {

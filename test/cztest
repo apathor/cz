@@ -93,6 +93,13 @@ assert_equal "hold retrieves cached data" \
 assert_equal "hold expires cached data based on time" \
              "$(hold -f -q -n t6 - <<< "bleh"; sleep 3; hold -g -t 2 -n t6)" ""
 
+# insulate unit tests
+assert_equal "insulate removes environment vars" \
+             "$(FOO=1 insulate ^FOO$ echo ":\$FOO:")" "::"
+
+assert_equal "insulate takes patterns" \
+             "$(XAB=a XAC=b XBA=c insulate ^XA echo "\$XAB\$XAC\$XBA")" "c"
+
 # summary
 if (( FAILS )); then
     printf "FAIL %d/%d" "$FAILS" "$TESTS"
