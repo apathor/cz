@@ -1,59 +1,70 @@
-![cz example gif](/web/cz-ex1.gif)
+---
+title: 'cz - Abstraction over line selection utilities - plus handy plugins!'
+---
+
+About
+=====
 
 Cz provides a common interface to interactive line selection tools.
 
 Cz also acts as a framework for line selection based applications.
 
-Included are over 200 plugins for common use cases. Out of the box you can select from:
+Included are over 200 plugins for common use cases. Out of the box you
+can select from:
 
- - everything from bash's built-in completion
- - files and directories
- - git branches
- - unicode characters
- - mpd tracks
- - pass(1) passwords
- - man pages and other documentation sources
- - elements from JSON/YAML/XML documents
- - docker images
- - system processes
- - i3 window manager components
- - terraform resources
+-   everything from bash\'s built-in completion
+-   files and directories
+-   git branches
+-   unicode characters
+-   mpd tracks
+-   pass(1) passwords
+-   man pages and other documentation sources
+-   elements from JSON/YAML/XML documents
+-   docker images
+-   system processes
+-   i3 window manager components
+-   terraform resources
 
 And a whole lot more!
 
-# Tools
+Tools
+=====
 
 Cz suports the following line selection tools:
- - [dmenu](https://tools.suckless.org/dmenu)
- - [fzf](https://github.com/junegunn/fzf)
- - [fzy](https://github.com/jhawthorn/fzy)
- - [iselect](http://www.ossp.org/pkg/tool/iselect)
- - [pick](https://github.com/mptre/pick)
- - [pipedial](https://code.reversed.top/user/xaizek/pipedial)
- - [rofi](https://github.com/davatorium/rofi)
- - [selecta](https://github.com/garybernhardt/selecta)
- - [sentaku](https://github.com/rcmdnk/sentaku)
- - [slmenu](https://bitbucket.org/rafaelgg/slmenu) (defunct?)
- - [vis-menu](https://github.com/martanne/vis)
 
-## Installation
+-   \[dmenu\](<https://tools.suckless.org/dmenu>)
+-   \[fzf\](<https://github.com/junegunn/fzf>)
+-   \[fzy\](<https://github.com/jhawthorn/fzy>)
+-   \[iselect\](<http://www.ossp.org/pkg/tool/iselect>)
+-   \[pick\](<https://github.com/mptre/pick>)
+-   \[pipedial\](<https://code.reversed.top/user/xaizek/pipedial>)
+-   \[rofi\](<https://github.com/davatorium/rofi>)
+-   \[selecta\](<https://github.com/garybernhardt/selecta>)
+-   \[sentaku\](<https://github.com/rcmdnk/sentaku>)
+-   \[slmenu\](<https://bitbucket.org/rafaelgg/slmenu>) (defunct?)
+-   \[vis-menu\](<https://github.com/martanne/vis>)
 
-```sh
+Installation
+============
+
+``` {.bash org-language="sh"}
 # just download the script to a directory on your path
 curl -sS https://raw.githubusercontent.com/apathor/cz/master/cz -o ~/bin/cz
 
 # and make it executable
 chmod +x ~/bin/cz
-
 ```
 
-Cz requires at least bash version 4. Mac OS users should `brew install bash`.
+Cz requires at least bash version 4. Mac OS users should \`brew install
+bash\`.
 
-It is assumed that at least one of the line selection tools listed above is also installed.
+It is assumed that at least one of the line selection tools listed above
+is also installed.
 
-## Usage
+Usage
+=====
 
-```
+``` {.text}
 cz [OPTIONS] < LINES
 Select a line from input interactively.
 
@@ -117,135 +128,191 @@ ENVIRONMENT
 EXAMPLES
  Compose plugins to get any file under an apparix bookmarked directory.
  $ cz -e 'cz -q find file {1}' apparix
-
-```
-## Examples
-
-Pick from lines on stdin.
-> printf "%s\n" foo bar qux | cz
-
-Accept null delimited input lines.
-> find . -name '*.yml' -print0 | cz -0
-
-Extract useful fields from selected line.
-> cz -q -f 0,5 -d : < /etc/passwd
-
-Safely handle input strings containing shell characters.
-> cz -e 'rev <<< "{0:}"' -i <(printf "%s\n" '$USER' '; false' '$(fortune)')
-
-Add selection to common commands.
-> cz -r -e 'dig {0} AAAA +short' compgen hostname
-
-Easily define plugins as bash functions.
-> cz_whois() { cz -e 'whois {0}' -f 0 compgen hostname; }; cz whois
-
-Select a password and put it on an xclip clipboard.
-> cz pass | cz xclip in
-
-Jump to any descendant directory.
-> cd "$(cz find dir)"
-
-Grab a URL from a paste buffer and open it in a browser.
-> cz xclip out | cz -e 'firefox {0}' uri
-
-Compose plugins to get the contents of any element from a JSON file.
-> cz -r -e 'cz -r jq {0}' locate *.json
-
-Compose plugins to get any file under an apparix bookmarked directory.
-> cz -r -e 'cz -q find file {1}' apparix
-
-## Configuration
-
-To get the most out of cz users should consider binding shell and window manager keys.
-
-### Bash
-
-Download this [example bash config](conf/cz.bashrc) then copy it into your bashrc file.
-
-The example config defines several key bindings that each insert text into the shell's edit buffer.
-
- - C-x x : select a plugin, run it, and insert fields from the selected line
- - C-x X : select a plugin, run it, and insert the selected line
- - C-x z : select a plugin, run it, and insert templated command output
- - C-x Z : select a plguin, run it, and insert templated command string
- - C-x r : Select and insert a command from history
- - C-x u : select and insert a unicode character
- - C-x g : select an uncomitted file in current git repo and insert its path
- - C-x G : select a comitted file in current git repo and insert its path
-
-Bash users should source cz to load included function 'rleval'.
-
-```
-rleval [OPTIONS] COMMAND [ARGS ...]
-Evaluate command then...
- -i : insert its output into the readline buffer at cursor point.
- -w : replace the word at cursor point with its output.
- -r : run the command attached to the terminal.
-
-The command string is templated using the current readline tokens.
-The word at cursor point is '{0}'. The first token in the command is '{1}' and so on.
-This function is intended to be used with the bash builtin 'bind -x'.
-
-EXAMPLES
- Insert the first token from the current readline buffer:
- $ bind -x '"\C-x0":rleval -i echo {1}'
-
- Insert fortunes on demand:
- $ bind -x '"\C-xf":rleval -i fortune"'
-
- Replace the current word with a generated password:
- $ bind -x '"\C-xp":rleval -w pwgen 20 1'
-
- Replace the current word with itself reversed:
- $ bind -x '"\C-xt":rleval -w "rev <<< {0}"'
-
- Encode and decode base64 strings at cursor point:
- $ bind -x '"\C-xb":rleval -w "base64 <<< {0}"'
- $ bind -x '"\C-xB":rleval -w "base64 -d <<< {0}"'
-
- Open the man page for the topic at cursor point:
- $ bind -x '"\C-xh":rleval -r man {0}'
 ```
 
-### Zsh
+Example Commands
+----------------
 
-Download this [example zsh config](conf/cz.zshrc) then copy it into your zshrc file.
+Pick from lines on stdin:
 
-The example config defines the same key bindings described in the bash section above.
+``` {.bash org-language="sh"}
+printf "%s\n" foo bar qux | cz
+```
 
-### i3 Window Manager
+Accept null delimited input lines:
 
-Download this [example i3 config](conf/cz-i3.conf) then copy it into your i3 config.
+``` {.bash org-language="sh"}
+find . -name '*.yml' -print0 | cz -0
+```
+
+Extract useful fields from selected line:
+
+``` {.bash org-language="sh"}
+cz -q -f 0,5 -d : < /etc/passwd
+```
+
+Safely handle input strings containing shell characters:
+
+``` {.bash org-language="sh"}
+cz -e 'rev <<< "{0:}"' -i <(printf "%s\n" '$USER' '; false' '$(fortune)')
+```
+
+Extend frequently used commands with interactive selection:
+
+``` {.bash org-language="sh"}
+cz -r -e 'dig {0} AAAA +short' compgen hostname
+```
+
+Easily define new cz plugins as bash functions:
+
+``` {.bash org-language="sh"}
+cz_whois() { cz -e 'whois {0}' -f 0 compgen hostname; }; cz whois
+```
+
+Select a password and put it on an xclip clipboard:
+
+``` {.bash org-language="sh"}
+cz pass | cz xclip in
+```
+
+Jump to any descendant directory:
+
+``` {.bash org-language="sh"}
+cd "$(cz find dir)"
+```
+
+Grab a URL from an xclip paste buffer and open it in a browser:
+
+``` {.bash org-language="sh"}
+cz xclip out | cz -r -e 'firefox {0}' uri
+```
+
+Compose plugins to get the contents of any element from a selected JSON
+file:
+
+``` {.bash org-language="sh"}
+cz -r -e 'cz -r jq {0}' locate *.json
+```
+
+Compose plugins to get any file under an apparix bookmarked directory:
+
+``` {.bash org-language="sh"}
+cz -r -e 'cz -q find file {1}' apparix
+```
+
+Configuration
+=============
+
+To get the most out of cz users should consider binding shell and window
+manager keys.
+
+Bash
+----
+
+Download this \[example bash config\](conf/cz.bashrc) then copy it into
+your bashrc file.
+
+The example config defines several key bindings that each insert text
+into the shell\'s edit buffer.
+
+-   C-x x : select a plugin, run it, and insert fields from the selected
+    line
+-   C-x X : select a plugin, run it, and insert the selected line
+-   C-x z : select a plugin, run it, and insert templated command output
+-   C-x Z : select a plguin, run it, and insert templated command string
+-   C-x r : Select and insert a command from history
+-   C-x u : select and insert a unicode character
+-   C-x g : select an uncomitted file in current git repo and insert its
+    path
+-   C-x G : select a comitted file in current git repo and insert its
+    path
+
+Bash users should source cz to load included function \'rleval\'.
+
+\#+END\_SRC rleval \[OPTIONS\] COMMAND \[ARGS ...\] Evaluate command
+then... -i : insert its output into the readline buffer at cursor point.
+-w : replace the word at cursor point with its output. -r : run the
+command attached to the terminal.
+
+The command string is templated using the current readline tokens. The
+word at cursor point is \'{0}\'. The first token in the command is
+\'{1}\' and so on. This function is intended to be used with the bash
+builtin \'bind -x\'.
+
+EXAMPLES Insert the first token from the current readline buffer: \$
+bind -x \'\"\C-x0\":rleval -i echo {1}\'
+
+Insert fortunes on demand: \$ bind -x \'\"\C-xf\":rleval -i fortune\"\'
+
+Replace the current word with a generated password: \$ bind -x
+\'\"\C-xp\":rleval -w pwgen 20 1\'
+
+Replace the current word with itself reversed: \$ bind -x
+\'\"\C-xt\":rleval -w \"rev \<\<\< {0}\"\'
+
+Encode and decode base64 strings at cursor point: \$ bind -x
+\'\"\C-xb\":rleval -w \"base64 \<\<\< {0}\"\' \$ bind -x
+\'\"\C-xB\":rleval -w \"base64 -d \<\<\< {0}\"\'
+
+Open the man page for the topic at cursor point: \$ bind -x
+\'\"\C-xh\":rleval -r man {0}\'
+
+\#+END\_SRC
+
+Zsh
+---
+
+Download this \[example zsh config\](conf/cz.zshrc) then copy it into
+your zshrc file.
+
+The example config defines the same key bindings described in the bash
+section above.
+
+i3 Window Manager
+-----------------
+
+Download this \[example i3 config\](conf/cz-i3.conf) then copy it into
+your i3 config.
 
 The example config defines the following key bindings:
 
- - Mod-x : select a plugin, run it, and put fields from selected line into a clipboard
- - Mod-X : select a plugin, run it, and put selected line into a clipboard
- - Mod-z : select a plugin, run it, and put command output into a clipboard
- - Mod-Z : select a plguin, run it, and put command string into a clipboard
- - Mod-c : select a command and run it
- - Mod-C : select a clipboard and pipe its contents through the selected command
- - Mod-o : select a clipboard then select from URLs extracted from its contents to open in a browser
- - Mod-Shift-Space : select an i3 a tag and jump to the selected window
- - Mod-Tab : select an i3 window and jump to it
- - Mod-Shift-Tab : select an i3 workspace and switch to it
+-   Mod-x : select a plugin, run it, and put fields from selected line
+    into a clipboard
+-   Mod-X : select a plugin, run it, and put selected line into a
+    clipboard
+-   Mod-z : select a plugin, run it, and put command output into a
+    clipboard
+-   Mod-Z : select a plguin, run it, and put command string into a
+    clipboard
+-   Mod-c : select a command and run it
+-   Mod-C : select a clipboard and pipe its contents through the
+    selected command
+-   Mod-o : select a clipboard then select from URLs extracted from its
+    contents to open in a browser
+-   Mod-Shift-Space : select an i3 a tag and jump to the selected window
+-   Mod-Tab : select an i3 window and jump to it
+-   Mod-Shift-Tab : select an i3 workspace and switch to it
 
-## Plugins
+Plugins
+=======
 
-Cz considers any command starting with 'cz_' a valid plugin.
+Cz considers any command starting with \'cz\_\' a valid plugin.
+
+Each plugin provides 
 
 Plugins should:
 
- - print usage text if the CZ_HELP environment variable is non-empty
- - provide some application specific input to cz
- - run cz with application specific options (-d, -e, -f, -i)
- - run cz without setting one of the mode options (-p, -q, -r, -s)
+-   print usage text if the CZ\_HELP environment variable is non-empty
+-   provide some application specific input to cz
+-   run cz with application specific options (-d, -e, -f, -i)
+-   run cz without setting one of the mode options (-p, -q, -r, -s)
 
-### Example - bash function
+Example - bash function
+-----------------------
 
 A function like the following can be defined in your bash configuration:
 
-```sh
+``` {.bash org-language="sh"}
 cz_fruit() {
   if [ -n "$CZ_HELP" ]; then
     printf "cz fruit\nSelect a fruit\n" >&2
@@ -257,11 +324,13 @@ cz_fruit() {
 
 ```
 
-### Example - external program
+Example - external program
+--------------------------
 
-Use your favorite language! Put the following in a file called 'cz_twos' on your path:
+Use your favorite language! Put the following in a file called
+\'cz\_twos\' on your path:
 
-```perl
+``` {.perl}
 #!/usr/bin/env perl
 use strict;
 use warnings;
@@ -274,13 +343,13 @@ if($ENV{"CZ_HELP"}) {
 open(my $pipe, "|-", "cz -f 1");
 print $pipe $_ for map { sprintf "%d %d\n", $_, 2 ** $_ } (1..32);
 close($pipe);
-
 ```
 
+Name
+====
 
-## Name
-```
+``` {.text}
 seize
-To fall or rush upon suddenly and lay hold of; to gripe or grasp suddenly; 
+To fall or rush upon suddenly and lay hold of; to gripe or grasp suddenly;
 *to reach and grasp*.
 ```

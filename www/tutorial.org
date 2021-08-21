@@ -1,0 +1,112 @@
+#+TITLE: Cz Tutorial
+
+* Idea
+Interactive selection is great when you work with computers.
+Bash is a good shell. The shell makes sense for this kind of glue utility.
+I wanted to use functions i wrote for dmenu with fzf.
+Turns out this is a whole category of application.
+Plugins are good and they should be easy to make. It's nice to be extensible.
+
+
+My shell workflow involved too much cut, copy, and paste.
+I would run one command to get an identifier then use it in another command. That wastes precious seconds!
+
+Completion can be janky and can only be used in specific contexts.
+Shells support programatically updating the command buffer.
+Combine with cz to get menu-driven insertion of words into the command buffer. 
+
+* Setup
+If you run bash just source it directly to try it out:
+
+#+begin_src bash
+
+
+#+end_src
+
+* Use Cases
+** Bash
+
+*** Finding Files
+Deep directory trees can turn file name completion into toil.
+Cz makes it a breeze to insert filenames directly at cursor point.
+#+begin_src bash
+  # Press 'Control-x f' to select from files under the directory named at
+  #  cursor point (or current directory) then replace that word with the
+  #   selected file name.
+  bind -x '"\C-xf": rleval -w cz -q find file {0}'
+
+  # Press 'Control-x F' to select from files with names matching the word at
+  #  cursor point under the current directory then replace that word with the
+  #   selected file name.
+  bind -x '"\C-xF": rleval -w cz -q find file . {0}'
+
+  # Press 'Control-x d' to select from directories under the directory named at
+  #  cursor point (or current directory) then replace that word with the
+  #   selected directory name.
+  bind -x '"\C-xd": rleval -w cz -q find dir {0}'
+
+  # Press 'Control-x D' to select from directories with names matching the word at
+  #  cursor point under the current directory then replace that word with the
+  #   selected file name.
+  bind -x '"\C-xD":rleval -w cz -q find dir . {0}'
+#+end_src
+
+*** Searching Files
+Searching for files containing a string is a critical part of modern software work.
+Get there faster than your coworkers with these keybindings.
+
+#+begin_src bash
+  # Press 'Control-x e' to select a file matching the word at
+  #  cursor point then replace that word with the selected file name.
+  bind -x '"\C-xe":rleval -w cz -q grep {0}'
+
+  # Press 'Control-x E' to select a file matching the word at
+  #  cursor point then open the file for editing at the selected line.
+  bind -x '"\C-xE":rleval -r cz -r grep {0}'
+#+end_src
+
+Maybe you use ripgrep? "It's faster than grep!"™ 
+#+begin_src bash
+  bind -x '"\C-xe":rleval -w cz -q rg {0}'
+  bind -x '"\C-xE":rleval -r cz -r rg {0}'
+#+end_src
+
+
+*** Current Working Directory
+Leap up and down the staircase with these keybindings:
+
+- *Control+x <* - change the current working directory to a selection from all ancestor directories.
+- *Control+x >* - change the current working directory to a selection from all descendent directories.
+
+#+begin_src bash
+  bind -x '"\C-x<":cz -e "cd {0}" ancestor'
+  bind -x '"\C-x>":cz -e "cd {0}" descendant'
+#+end_src
+
+*** History
+Perhaps you rely on 'C-r' to find a recent entry in your shell history.
+
+Cz makes it convenient to insert history entries directly at cursor point.
+
+Consider these bash key bindings:
+#+begin_src bash
+  # Press 'Control-x r' - select and insert a command from bash history
+  bind -x '"\C-xr":rleval -i cz -q bash history'
+#+end_src
+
+** Git
+Git has so many different names to find and copy and paste: commits, branches, remotes, tags.
+
+Using cz you can directly insert any of these elements into the command buffer.
+
+Consider these bash key bindings:
+#+begin_src bash
+  # Press 'Control-x g' - select and insert a file from git status
+  bind -x '"\C-xg":rleval cz -q git status'
+  # Press 'Control-x G' - select and insert a git tracked file
+  bind -x '"\C-xG":rleval cz -q git file'
+#+end_src
+
+Try `cz meta -q git` to select from git related plugins.
+** Window Managers
+
