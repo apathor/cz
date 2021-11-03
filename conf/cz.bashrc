@@ -1,9 +1,11 @@
 # Bash Cz Config
 
-# Require that cz is sourced
-if ! . cz; then return; fi
+# Download and source cz 
+if ! type cz &>/dev/null
+   . <(curl -sS https://raw.githubusercontent.com/apathor/cz/master/cz)
+fi
 
-# Disable graphical programs from the shell
+# Disable graphical line selection for the shell
 export CZ_GUI=0
 
 # Core Functionality

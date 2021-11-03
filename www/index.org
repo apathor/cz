@@ -8,7 +8,7 @@ Cz also acts as a framework for line selection based applications.
 
 Included are over 200 plugins for common use cases. Out of the box you can select from:
 
- - everything from bash's built-in completion
+ - items from bash's built-in completion
  - files and directories
  - git branches
  - unicode characters
@@ -38,15 +38,17 @@ Cz suports the following line selection tools:
  - [slmenu](https://bitbucket.org/rafaelgg/slmenu) (defunct?)
  - [vis-menu](https://github.com/martanne/vis)
 
+THANKS to the authors of the above tools.
+
 * Installation
 
-#+BEGIN_SRC sh
+#+begin_src sh
 # just download the script to a directory on your path
 curl -sS https://raw.githubusercontent.com/apathor/cz/master/cz -o ~/bin/cz
 
 # and make it executable
 chmod +x ~/bin/cz
-#+END_SRC
+#+end_src
 
 Cz requires at least bash version 4. Mac OS users should `brew install bash`.
 
@@ -54,48 +56,60 @@ It is assumed that at least one of the line selection tools listed above is also
 
 * Usage
 
-#+BEGIN_SRC text
-cz [OPTIONS] < LINES
-Select a line from input interactively.
+# #+begin_src sh :results verbatim
+#   cz -h 2>&1
+# #+end_src
 
-cz [OPTIONS] [PLUGIN] [ARGS ...]
-Run a plugin to select something application specific.
+#+begin_src
+cz [OPTIONS] [PLUGIN...] [ARGS ...] [< LINES]
+Select a line using your preferred interactive line selection tool.
 
 OPTIONS
  These options print some information and exit:
-  -h : help     : Print this help text or help text for plugin.
-  -H : example  : Print a bunch of example commands.
+  -h : help     : Show this help text or help text for plugin.
+  -H : example  : List example commands.
   -k : tools    : List supported line selection tools.
   -l : plugins  : List detected plugins.
-  -v : version  : Print version string.
+  -v : version  : Show version string.
 
- These options set the program mode. Select a line then...
+ These options set the program mode. Select a line then... :
   -p : print    : Print the line. This is the default mode.
   -q : quote    : Print fields extracted from the line.
-  -r : run      : Run a command templated with fields from the line.
-  -s : simulate : Print a string templated with fields from the line.
+  -r : run      : Run a templated command.
+  -s : simulate : Print a templated command.
+  -t : template : Print a templated string.
+  -o :          : Only print input lines instead of selecting a line.
 
- General options:
-  -c            : Use newly generated input not cached lines.
-  -d DELIMITER  : Set field splitting characters for selected line.
-  -e TEMPLATE   : Set command template. This option implies mode '-r'.
-  -f FIELDS     : Set field template. This option implies mode '-q'.
+ These options set a template:
+  -e TEMPLATE   : Set the command template. This option implies mode '-r'.
+  -f FIELDS     : Set the field template. This option implies mode '-q'.
+
+ These options control input and line splitting:
+  -c            : Do not use cached input lines.
+  -d DELIMITER  : Set the field splitting characters.
   -g            : Buffer stdin and pass it to command set with '-e'.
+  -0            : Read null terminated lines from input.
   -i IN-FILE    : Set file from which to read selections instead of stdin.
-  -o            : Only print input lines instead of selecting a line.
+
+ These options determine line selection utility:
   -x            : Use a graphical line selection tool.
   -y            : Use a terminal line selection tool.
   -z TOOL       : Use the given line selection tool.
-  -0            : Read null terminated lines from input.
 
 TOOLS
- Cz provides a common interface to multiple interactive line selection tools.
- The suported tools are dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta,
-  sentaku, slmenu, and vis-menu.
+ The following interactive line selection tools are supported:
+ dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta, sentaku, slmenu,
+ and vis-menu.
+
+PLUGINS
+ Plugins extend cz for an application specific task. Each defines input lines
+  and options like the delimiter and templates.
+ Run 'cz -l' to list plugins and 'cz -h PLUGIN' or 'cz help' for help text.
+ All commands starting with 'cz_' are considered cz plugins.
 
 TEMPLATES
  Substrings of TEMPLATE in the following formats are replaced with
-  one or more fields from a selected line split by DELIM.
+  one or more fields from a selected line split by DELIMITER.
      {X}     - field X
      {X:}    - fields X through end of fields
      {X:Y}   - fields X through X + Y
@@ -107,75 +121,12 @@ TEMPLATES
   @P - Expand arguments for use in prompt strings.
   @Q - Quote arguments for use in command input. This is the default.
 
- FIELDS consists of one of the above without the enclosing '{}'.
-
 ENVIRONMENT
  CZ_GUI         : preferred interface - 1=graphical 0=terminal
  CZ_BINS_GUI    : list of graphical utilities in order of preference
  CZ_BINS_TTY    : list of terminal utilities in order of preference
  CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
-
-EXAMPLES
- Compose plugins to get any file under an apparix bookmarked directory.
- $ cz -e 'cz -q find file {1}' apparix
-#+END_SRC
-
-** Example Commands
-
-Pick from lines on stdin:
-#+BEGIN_SRC sh
-printf "%s\n" foo bar qux | cz
-#+END_SRC
-
-Accept null delimited input lines:
-#+BEGIN_SRC sh
-  find . -name '*.yml' -print0 | cz -0
-#+END_SRC
-
-Extract useful fields from selected line:
-#+BEGIN_SRC sh
-  cz -q -f 0,5 -d : < /etc/passwd
-#+END_SRC
-
-Safely handle input strings containing shell characters:
-#+BEGIN_SRC sh
-  cz -e 'rev <<< "{0:}"' -i <(printf "%s\n" '$USER' '; false' '$(fortune)')
-#+END_SRC
-
-Extend frequently used commands with interactive selection:
-#+BEGIN_SRC sh
-  cz -r -e 'dig {0} AAAA +short' compgen hostname
-#+END_SRC
-
-Easily define new cz plugins as bash functions:
-#+BEGIN_SRC sh
-  cz_whois() { cz -e 'whois {0}' -f 0 compgen hostname; }; cz whois
-#+END_SRC
-
-Select a password and put it on an xclip clipboard:
-#+BEGIN_SRC sh
-  cz pass | cz xclip in
-#+END_SRC
-
-Jump to any descendant directory:
-#+BEGIN_SRC sh
-  cd "$(cz find dir)"
-#+END_SRC
-
-Grab a URL from an xclip paste buffer and open it in a browser:
-#+BEGIN_SRC sh
-  cz xclip out | cz -r -e 'firefox {0}' uri
-#+END_SRC
-
-Compose plugins to get the contents of any element from a selected JSON file:
-#+BEGIN_SRC sh
-  cz -r -e 'cz -r jq {0}' locate *.json
-#+END_SRC
-
-Compose plugins to get any file under an apparix bookmarked directory:
-#+BEGIN_SRC sh
-  cz -r -e 'cz -q find file {1}' apparix
-#+END_SRC
+#+end_src
 
 * Configuration
 To get the most out of cz users should consider binding shell and window manager keys.
@@ -196,7 +147,7 @@ The example config defines several key bindings that each insert text into the s
 
 Bash users should source cz to load included function 'rleval'.
 
-#+END_SRC
+#+begin_src
 rleval [OPTIONS] COMMAND [ARGS ...]
 Evaluate command then...
  -i : insert its output into the readline buffer at cursor point.
@@ -226,7 +177,7 @@ EXAMPLES
 
  Open the man page for the topic at cursor point:
  $ bind -x '"\C-xh":rleval -r man {0}'
-#+END_SRC
+#+end_src
 
 ** Zsh
 
@@ -260,13 +211,13 @@ Plugins should:
  - print usage text if the CZ_HELP environment variable is non-empty
  - provide some application specific input to cz
  - run cz with application specific options (-d, -e, -f, -i)
- - run cz without setting one of the mode options (-p, -q, -r, -s)
+ - run cz without setting one of the mode options (-p, -q, -r, -s, -t, -u)
 
 ** Example - bash function
 
 A function like the following can be defined in your bash configuration:
 
-#+BEGIN_SRC sh
+#+begin_src sh
 cz_fruit() {
   if [ -n "$CZ_HELP" ]; then
     printf "cz fruit\nSelect a fruit\n" >&2
@@ -276,13 +227,13 @@ cz_fruit() {
     -i <(printf "%s\n" apple banana grapefruit orange)
 }
 
-#+END_SRC
+#+end_src
 
 ** Example - external program
 
 Use your favorite language! Put the following in a file called 'cz_twos' on your path:
 
-#+BEGIN_SRC perl
+#+begin_src perl
 #!/usr/bin/env perl
 use strict;
 use warnings;
@@ -295,12 +246,12 @@ if($ENV{"CZ_HELP"}) {
 open(my $pipe, "|-", "cz -f 1");
 print $pipe $_ for map { sprintf "%d %d\n", $_, 2 ** $_ } (1..32);
 close($pipe);
-#+END_SRC
+#+end_src
 
 
 * Name
-#+BEGIN_SRC text
+#+begin_src text
 seize
 To fall or rush upon suddenly and lay hold of; to gripe or grasp suddenly;
 *to reach and grasp*.
-#+END_SRC
+#+end_src

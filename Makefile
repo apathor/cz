@@ -1,3 +1,4 @@
+SHELL := /bin/bash
 all: test www
 
 test: unit lint
@@ -15,10 +16,13 @@ WWW_SOURCES := $(wildcard www/*.org)
 
 www: www/ $(WWW_SOURCES:.org=.html) README.md
 
-README.md:
+README.md: www/index.org
 	pandoc -s www/index.org -o README.md
 
 www/:
 	mkdir -p ./www
 
-.PHONY: test unit lint www
+gif:
+	gifcut -b1 "$$(capture -Wt20)" "window-$$(date +%s).gif"
+
+.PHONY: gif lint test unit www

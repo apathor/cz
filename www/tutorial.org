@@ -1,112 +1,189 @@
 #+TITLE: Cz Tutorial
 
-* Idea
-Interactive selection is great when you work with computers.
-Bash is a good shell. The shell makes sense for this kind of glue utility.
-I wanted to use functions i wrote for dmenu with fzf.
-Turns out this is a whole category of application.
-Plugins are good and they should be easy to make. It's nice to be extensible.
+* Introduction
+Cz is a bash script that wraps multiple line selection tools to provide a consistent interface.
+A line selection tool is a program that reads lines on stdin then interactively prompts the user to select a line.
+Some of these tools are graphical and others are intended for the terminal. Using cz the same command works in either situation.
+Additionally cz provides a framework for plugins. Each plugin defines a set of input lines and optional templates.
 
-
-My shell workflow involved too much cut, copy, and paste.
-I would run one command to get an identifier then use it in another command. That wastes precious seconds!
-
-Completion can be janky and can only be used in specific contexts.
-Shells support programatically updating the command buffer.
-Combine with cz to get menu-driven insertion of words into the command buffer. 
 
 * Setup
-If you run bash just source it directly to try it out:
-
 #+begin_src bash
+  # download the script
+  curl -sS https://raw.githubusercontent.com/apathor/cz/master/cz -o cz
+  # mark it executable and put it on your PATH
+  chmod +x cz
+  cp cz ~/bin
+  # or just source it if you run bash
+  . cz
+#+end_src
 
+* Usage Examples
 
+Pick from lines on stdin:
+#+begin_src bash
+  printf "%s\n" foo bar qux | cz
+#+end_src
+
+Select from null delimited input lines:
+#+begin_src bash
+  find . - '*.yml' -print0 | cz -0
+#+end_src
+
+Extract useful fields from the selected line:
+#+begin_src bash
+  cz -u -f 0,5 -d : < /etc/passwd
+#+end_src
+
+Split the selected line by a delimeter:
+#+begin_src bash
+  cz -d: -f3 < /etc/passwd
+#+end_src
+
+Format fields from the selected line into a string:
+#+begin_src bash
+  grep -v ^# /etc/hosts | cz -t -e "{1} --> {0}"
+#+end_src
+
+Safely handle input strings containing shell characters:
+#+begin_src sh
+  cz -r -e 'rev <<< {0:}' -i <(printf "%s\n" '$USER' '; false' '$(fortune)')
+#+end_src
+
+Print a command instead of running it:
+#+begin_src bash
+  printf "%d\n" {9999..1} | cz -s -e 'cal {0}'
+#+end_src
+
+List available plugins:
+#+begin_src bash
+  cz -l
+#+end_src
+
+Extend frequently used commands with interactive selection:
+#+begin_src bash
+  cz -r -e 'dig {0} A +short' compgen hostname
+#+end_src
+
+Easily define new cz plugins as bash functions:
+#+begin_src bash
+  cz_whois() { cz -r -e 'whois {0}' -f 0 compgen hostname; }; cz whois
+#+end_src
+
+Select a password and put it on an xclip clipboard:
+#+begin_src bash
+  cz pass | cz xclip in
+#+end_src
+
+Jump to any descendant directory:
+#+begin_src bash
+  cd "$(cz descendant)"
+#+end_src
+
+Grab a URL from an xclip paste buffer and open it in a browser:
+#+begin_src bash
+  cz xclip out | cz -r -e 'firefox {0}' uri
+#+end_src
+
+Compose plugins to get the contents of any element from a nearby JSON file:
+#+begin_src bash
+  cz -r -e 'cz -r jq {0}' find file . '*.json'
+#+end_src
+
+Compose plugins to get any file under an apparix bookmarked directory:
+#+begin_src bash
+  cz -r -e 'cz -q find file {1}' apparix
 #+end_src
 
 * Use Cases
 ** Bash
+Does your shell workflow involve too much copy and paste? You run one command to get a file or identifier to copy and use in another command. That wastes precious seconds!
+
+Using cz you get menu-driven insertion of the text you need, no copy and paste required.
+
+Install the example bash config then follow along with these examples
+#+begin_src bash
+. <(curl https://raw.githubusercontent.com/apathor/cz/master/conf/cz.bashrc)
+#+end_src
 
 *** Finding Files
 Deep directory trees can turn file name completion into toil.
-Cz makes it a breeze to insert filenames directly at cursor point.
+
+Cz makes it a breeze to insert filenames right where you need them.
+
+- *Control+x f* - Select from files under the directory named at cursor point (or current directory) then replace that word with the selected file name.
+- *Control+x F* - Select from files with names matching the word at cursor point under the current directory then replace that word with the selected file name.
+- *Control+x d* - Select from directories under the directory named at cursor point (or current directory) then replace that word with the selected directory name.
+- *Control+x D* - Select from directories with names matching the word at cursor point under the current directory then replace that word with the selected file name.
+
 #+begin_src bash
-  # Press 'Control-x f' to select from files under the directory named at
-  #  cursor point (or current directory) then replace that word with the
-  #   selected file name.
   bind -x '"\C-xf": rleval -w cz -q find file {0}'
-
-  # Press 'Control-x F' to select from files with names matching the word at
-  #  cursor point under the current directory then replace that word with the
-  #   selected file name.
   bind -x '"\C-xF": rleval -w cz -q find file . {0}'
-
-  # Press 'Control-x d' to select from directories under the directory named at
-  #  cursor point (or current directory) then replace that word with the
-  #   selected directory name.
   bind -x '"\C-xd": rleval -w cz -q find dir {0}'
-
-  # Press 'Control-x D' to select from directories with names matching the word at
-  #  cursor point under the current directory then replace that word with the
-  #   selected file name.
-  bind -x '"\C-xD":rleval -w cz -q find dir . {0}'
+  bind -x '"\C-xD": rleval -w cz -q find dir . {0}'
 #+end_src
+
+If available fd-find is used in place of find in the find plugins.
 
 *** Searching Files
 Searching for files containing a string is a critical part of modern software work.
-Get there faster than your coworkers with these keybindings.
+
+Get there faster than your cow-orkers with these keybindings and the cz grep plugin.
+
+- *Control+x e* - select a match for the word at cursor point then replace that word with the selected file name.
+- *Control+x E* - select a match for the word at cursor point then open the file for editing at the selected line.
 
 #+begin_src bash
-  # Press 'Control-x e' to select a file matching the word at
-  #  cursor point then replace that word with the selected file name.
   bind -x '"\C-xe":rleval -w cz -q grep {0}'
-
-  # Press 'Control-x E' to select a file matching the word at
-  #  cursor point then open the file for editing at the selected line.
   bind -x '"\C-xE":rleval -r cz -r grep {0}'
 #+end_src
 
-Maybe you use ripgrep? "It's faster than grep!"™ 
-#+begin_src bash
-  bind -x '"\C-xe":rleval -w cz -q rg {0}'
-  bind -x '"\C-xE":rleval -r cz -r rg {0}'
-#+end_src
-
+Maybe you use ripgrep ("It's faster than grep!™")? If available it is used in place of vanilla grep in the grep plugin.
 
 *** Current Working Directory
-Leap up and down the staircase with these keybindings:
+Leap up and down the +staircase+ directory tree with these keybindings:
 
 - *Control+x <* - change the current working directory to a selection from all ancestor directories.
 - *Control+x >* - change the current working directory to a selection from all descendent directories.
 
 #+begin_src bash
-  bind -x '"\C-x<":cz -e "cd {0}" ancestor'
-  bind -x '"\C-x>":cz -e "cd {0}" descendant'
+  bind -x '"\C-x<":cz -r ancestor'
+  bind -x '"\C-x>":cz -r descendant'
 #+end_src
 
 *** History
-Perhaps you rely on 'C-r' to find a recent entry in your shell history.
+Perhaps you rely on bash's 'C-r' key bind to find a recent entry in your shell history.
 
 Cz makes it convenient to insert history entries directly at cursor point.
 
-Consider these bash key bindings:
+- *Control-x r* - select and insert a command from bash history
+
 #+begin_src bash
-  # Press 'Control-x r' - select and insert a command from bash history
   bind -x '"\C-xr":rleval -i cz -q bash history'
 #+end_src
 
-** Git
+*** Git
 Git has so many different names to find and copy and paste: commits, branches, remotes, tags.
 
 Using cz you can directly insert any of these elements into the command buffer.
 
-Consider these bash key bindings:
+- *Control-x g* - select and insert a file from git status
+- *Control-x G* - select and insert a git tracked file
+
 #+begin_src bash
-  # Press 'Control-x g' - select and insert a file from git status
   bind -x '"\C-xg":rleval cz -q git status'
-  # Press 'Control-x G' - select and insert a git tracked file
   bind -x '"\C-xG":rleval cz -q git file'
 #+end_src
 
-Try `cz meta -q git` to select from git related plugins.
-** Window Managers
+Try `cz meta -q git` to select from all git related plugins.
 
+*** Unicode
+Damn there are just so many unicode characters huh? Arghhh!!! There's so many!
+
+[[file:img/cz-example-unicode.gif][Cz unicode plugin example]]
+
+- *Control-x u* - select and insert a unicode character by block and name
+
+#+begin_src bash
+  bind -x '"\C-xg":rleval cz -u unicode'
+#+end_src bash
