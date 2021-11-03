@@ -1,7 +1,9 @@
 #+TITLE: cz - Abstraction over line selection utilities - plus handy plugins!
 #+OPTIONS: ^:{}
 
-* About
+* cz
+
+** About
 Cz provides a common interface to interactive line selection tools.
 
 Cz also acts as a framework for line selection based applications.
@@ -23,24 +25,7 @@ Included are over 200 plugins for common use cases. Out of the box you can selec
 
 And a whole lot more!
 
-* Tools
-
-Cz suports the following line selection tools:
- - [dmenu](https://tools.suckless.org/dmenu)
- - [fzf](https://github.com/junegunn/fzf)
- - [fzy](https://github.com/jhawthorn/fzy)
- - [iselect](http://www.ossp.org/pkg/tool/iselect)
- - [pick](https://github.com/mptre/pick)
- - [pipedial](https://code.reversed.top/user/xaizek/pipedial)
- - [rofi](https://github.com/davatorium/rofi)
- - [selecta](https://github.com/garybernhardt/selecta)
- - [sentaku](https://github.com/rcmdnk/sentaku)
- - [slmenu](https://bitbucket.org/rafaelgg/slmenu) (defunct?)
- - [vis-menu](https://github.com/martanne/vis)
-
-THANKS to the authors of the above tools.
-
-* Installation
+** Installation
 
 #+begin_src sh
 # just download the script to a directory on your path
@@ -54,7 +39,7 @@ Cz requires at least bash version 4. Mac OS users should `brew install bash`.
 
 It is assumed that at least one of the line selection tools listed above is also installed.
 
-* Usage
+** Usage
 
 # #+begin_src sh :results verbatim
 #   cz -h 2>&1
@@ -128,10 +113,27 @@ ENVIRONMENT
  CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
 #+end_src
 
-* Configuration
+** Tools
+
+Cz suports the following line selection tools:
+ - [[https://tools.suckless.org/dmenu][dmenu]]
+ - [[https://github.com/junegunn/fzf][fzf]]
+ - [[https://github.com/jhawthorn/fzy][fzy]]
+ - [[http://www.ossp.org/pkg/tool/iselect][iselect]]
+ - [[https://github.com/mptre/pick][pick]]
+ - [[https://code.reversed.top/user/xaizek/pipedial][pipedial]]
+ - [[https://github.com/davatorium/rofi][rofi]]
+ - [[https://github.com/garybernhardt/selecta][selecta]]
+ - [[https://github.com/rcmdnk/sentaku][sentaku]]
+ - [[https://bitbucket.org/rafaelgg/slmenu][slmenu]] (defunct?)
+ - [[https://github.com/martanne/vis][vis-menu]]
+
+Thanks to the authors of the above tools!
+
+** Configuration
 To get the most out of cz users should consider binding shell and window manager keys.
 
-** Bash
+*** Bash
 
 Download this [example bash config](conf/cz.bashrc) then copy it into your bashrc file.
 
@@ -179,13 +181,13 @@ EXAMPLES
  $ bind -x '"\C-xh":rleval -r man {0}'
 #+end_src
 
-** Zsh
+*** Zsh
 
 Download this [example zsh config](conf/cz.zshrc) then copy it into your zshrc file.
 
 The example config defines the same key bindings described in the bash section above.
 
-** i3 Window Manager
+*** i3 Window Manager
 
 Download this [example i3 config](conf/cz-i3.conf) then copy it into your i3 config.
 
@@ -202,7 +204,7 @@ The example config defines the following key bindings:
  - Mod-Tab : select an i3 window and jump to it
  - Mod-Shift-Tab : select an i3 workspace and switch to it
 
-* Plugins
+** Plugins
 
 Cz considers any command starting with 'cz_' a valid plugin.
 
@@ -213,7 +215,7 @@ Plugins should:
  - run cz with application specific options (-d, -e, -f, -i)
  - run cz without setting one of the mode options (-p, -q, -r, -s, -t, -u)
 
-** Example - bash function
+*** Example - bash function
 
 A function like the following can be defined in your bash configuration:
 
@@ -229,7 +231,7 @@ cz_fruit() {
 
 #+end_src
 
-** Example - external program
+*** Example - external program
 
 Use your favorite language! Put the following in a file called 'cz_twos' on your path:
 
@@ -248,8 +250,7 @@ print $pipe $_ for map { sprintf "%d %d\n", $_, 2 ** $_ } (1..32);
 close($pipe);
 #+end_src
 
-
-* Name
+** Name
 #+begin_src text
 seize
 To fall or rush upon suddenly and lay hold of; to gripe or grasp suddenly;

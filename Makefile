@@ -17,7 +17,7 @@ WWW_SOURCES := $(wildcard www/*.org)
 www: www/ $(WWW_SOURCES:.org=.html) README.md
 
 README.md: www/index.org
-	pandoc -s www/index.org -o README.md
+	pandoc -s www/index.org -t gfm -o README.md
 
 www/:
 	mkdir -p ./www
