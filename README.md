@@ -11,18 +11,37 @@ can select from:
 
   - items from bash's built-in completion
   - files and directories
+  - system processes
   - git branches
   - unicode characters
-  - mpd tracks
   - pass(1) passwords
   - man pages and other documentation sources
   - elements from JSON/YAML/XML documents
   - docker images
-  - system processes
   - i3 window manager components
   - terraform resources
+  - mpd tracks
 
 And a whole lot more\!
+
+## Tools
+
+Cz supports the following line selection tools:
+
+  - [choose](https://github.com/chipsenkbeil/choose)
+  - [dmenu](https://tools.suckless.org/dmenu)
+  - [fzf](https://github.com/junegunn/fzf)
+  - [fzy](https://github.com/jhawthorn/fzy)
+  - [iselect](http://www.ossp.org/pkg/tool/iselect)
+  - [pick](https://github.com/mptre/pick)
+  - [pipedial](https://code.reversed.top/user/xaizek/pipedial)
+  - [rofi](https://github.com/davatorium/rofi)
+  - [selecta](https://github.com/garybernhardt/selecta)
+  - [sentaku](https://github.com/rcmdnk/sentaku)
+  - [slmenu](https://bitbucket.org/rafaelgg/slmenu) (defunct?)
+  - [vis-menu](https://github.com/martanne/vis)
+
+Many thanks to the authors of the above tools\!
 
 ## Installation
 
@@ -37,14 +56,11 @@ chmod +x ~/bin/cz
 Cz requires at least bash version 4. Mac OS users should \`brew install
 bash\`.
 
-It is assumed that at least one of the line selection tools listed above
-is also installed.
-
 ## Usage
 
     cz [OPTIONS] [PLUGIN...] [ARGS ...] [< LINES]
     Select a line using your preferred interactive line selection tool.
-    
+
     OPTIONS
      These options print some information and exit:
       -h : help     : Show this help text or help text for plugin.
@@ -52,42 +68,43 @@ is also installed.
       -k : tools    : List supported line selection tools.
       -l : plugins  : List detected plugins.
       -v : version  : Show version string.
-    
+
      These options set the program mode. Select a line then... :
       -p : print    : Print the line. This is the default mode.
-      -q : quote    : Print fields extracted from the line.
+      -q : quoted   : Print fields from the line in shell quotes.
       -r : run      : Run a templated command.
       -s : simulate : Print a templated command.
       -t : template : Print a templated string.
+      -u : unquoted : Print fields from the line literally.
       -o :          : Only print input lines instead of selecting a line.
-    
+
      These options set a template:
       -e TEMPLATE   : Set the command template. This option implies mode '-r'.
       -f FIELDS     : Set the field template. This option implies mode '-q'.
-    
+
      These options control input and line splitting:
       -c            : Do not use cached input lines.
       -d DELIMITER  : Set the field splitting characters.
       -g            : Buffer stdin and pass it to command set with '-e'.
       -0            : Read null terminated lines from input.
       -i IN-FILE    : Set file from which to read selections instead of stdin.
-    
-     These options determine line selection utility:
+
+     These options control which line selection utility is used:
       -x            : Use a graphical line selection tool.
       -y            : Use a terminal line selection tool.
       -z TOOL       : Use the given line selection tool.
-    
+
     TOOLS
      The following interactive line selection tools are supported:
-     dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta, sentaku, slmenu,
-     and vis-menu.
-    
+      choose, dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta, sentaku,
+      slmenu, and vis-menu.
+
     PLUGINS
-     Plugins extend cz for an application specific task. Each defines input lines
-      and options like the delimiter and templates.
+     Plugins extend cz for an application specific task. Each plugin defines input
+      lines and options like the delimiter and templates.
      Run 'cz -l' to list plugins and 'cz -h PLUGIN' or 'cz help' for help text.
-     All commands starting with 'cz_' are considered cz plugins.
-    
+     All commands starting with 'cz_' are considered plugins.
+
     TEMPLATES
      Substrings of TEMPLATE in the following formats are replaced with
       one or more fields from a selected line split by DELIMITER.
@@ -95,36 +112,20 @@ is also installed.
          {X:}    - fields X through end of fields
          {X:Y}   - fields X through X + Y
          {X,Y,Z} - fields X, Y, and Z
-    
+
      Append @C, @E, @P, or @Q to transform selected fields:
-      @C - Insert argument directly. This is risky for command strings!
-      @E - Replace backslash escape sequences in arguments with bash $'...' quotes.
-      @P - Expand arguments for use in prompt strings.
-      @Q - Quote arguments for use in command input. This is the default.
-    
+      {X@C} - Insert argument directly. This is risky for command strings!
+      {X@E} - Replace backslash escape sequences in arguments with bash $'...' quotes.
+      {X@P} - Expand arguments for use in prompt strings.
+      {X@Q} - Quote arguments for use in command input. This is the default.
+
     ENVIRONMENT
-     CZ_GUI         : preferred interface - 1=graphical 0=terminal
-     CZ_BINS_GUI    : list of graphical utilities in order of preference
-     CZ_BINS_TTY    : list of terminal utilities in order of preference
+     CZ_GUI         : The preferred interface - 1=graphical 0=terminal
+     CZ_BINS_GUI    : A list of graphical utilities in order of preference
+     CZ_BINS_TTY    : A list of terminal utilities in order of preference
      CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
-
-## Tools
-
-Cz suports the following line selection tools:
-
-  - [dmenu](https://tools.suckless.org/dmenu)
-  - [fzf](https://github.com/junegunn/fzf)
-  - [fzy](https://github.com/jhawthorn/fzy)
-  - [iselect](http://www.ossp.org/pkg/tool/iselect)
-  - [pick](https://github.com/mptre/pick)
-  - [pipedial](https://code.reversed.top/user/xaizek/pipedial)
-  - [rofi](https://github.com/davatorium/rofi)
-  - [selecta](https://github.com/garybernhardt/selecta)
-  - [sentaku](https://github.com/rcmdnk/sentaku)
-  - [slmenu](https://bitbucket.org/rafaelgg/slmenu) (defunct?)
-  - [vis-menu](https://github.com/martanne/vis)
-
-Thanks to the authors of the above tools\!
+     CZ_DMENU_FONT  : The font to use for dmenu.
+     CZ_ROFI_THEME  : The theme to use for rofi.
 
 ## Configuration
 
@@ -158,28 +159,28 @@ Bash users should source cz to load included function 'rleval'.
      -i : insert its output into the readline buffer at cursor point.
      -w : replace the word at cursor point with its output.
      -r : run the command attached to the terminal.
-    
+
     The command string is templated using the current readline tokens.
     The word at cursor point is '{0}'. The first token in the command is '{1}' and so on.
     This function is intended to be used with the bash builtin 'bind -x'.
-    
+
     EXAMPLES
      Insert the first token from the current readline buffer:
      $ bind -x '"\C-x0":rleval -i echo {1}'
-    
+
      Insert fortunes on demand:
      $ bind -x '"\C-xf":rleval -i fortune"'
-    
+
      Replace the current word with a generated password:
      $ bind -x '"\C-xp":rleval -w pwgen 20 1'
-    
+
      Replace the current word with itself reversed:
      $ bind -x '"\C-xt":rleval -w "rev <<< {0}"'
-    
+
      Encode and decode base64 strings at cursor point:
      $ bind -x '"\C-xb":rleval -w "base64 <<< {0}"'
      $ bind -x '"\C-xB":rleval -w "base64 -d <<< {0}"'
-    
+
      Open the man page for the topic at cursor point:
      $ bind -x '"\C-xh":rleval -r man {0}'
 

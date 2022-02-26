@@ -12,18 +12,36 @@ Included are over 200 plugins for common use cases. Out of the box you can selec
 
  - items from bash's built-in completion
  - files and directories
+ - system processes
  - git branches
  - unicode characters
- - mpd tracks
  - pass(1) passwords
  - man pages and other documentation sources
  - elements from JSON/YAML/XML documents
  - docker images
- - system processes
  - i3 window manager components
  - terraform resources
+ - mpd tracks
 
 And a whole lot more!
+
+** Tools
+
+Cz supports the following line selection tools:
+ - [[https://github.com/chipsenkbeil/choose][choose]]
+ - [[https://tools.suckless.org/dmenu][dmenu]]
+ - [[https://github.com/junegunn/fzf][fzf]]
+ - [[https://github.com/jhawthorn/fzy][fzy]]
+ - [[http://www.ossp.org/pkg/tool/iselect][iselect]]
+ - [[https://github.com/mptre/pick][pick]]
+ - [[https://code.reversed.top/user/xaizek/pipedial][pipedial]]
+ - [[https://github.com/davatorium/rofi][rofi]]
+ - [[https://github.com/garybernhardt/selecta][selecta]]
+ - [[https://github.com/rcmdnk/sentaku][sentaku]]
+ - [[https://bitbucket.org/rafaelgg/slmenu][slmenu]] (defunct?)
+ - [[https://github.com/martanne/vis][vis-menu]]
+
+Many thanks to the authors of the above tools!
 
 ** Installation
 
@@ -37,14 +55,7 @@ chmod +x ~/bin/cz
 
 Cz requires at least bash version 4. Mac OS users should `brew install bash`.
 
-It is assumed that at least one of the line selection tools listed above is also installed.
-
 ** Usage
-
-# #+begin_src sh :results verbatim
-#   cz -h 2>&1
-# #+end_src
-
 #+begin_src
 cz [OPTIONS] [PLUGIN...] [ARGS ...] [< LINES]
 Select a line using your preferred interactive line selection tool.
@@ -59,10 +70,11 @@ OPTIONS
 
  These options set the program mode. Select a line then... :
   -p : print    : Print the line. This is the default mode.
-  -q : quote    : Print fields extracted from the line.
+  -q : quoted   : Print fields from the line in shell quotes.
   -r : run      : Run a templated command.
   -s : simulate : Print a templated command.
   -t : template : Print a templated string.
+  -u : unquoted : Print fields from the line literally.
   -o :          : Only print input lines instead of selecting a line.
 
  These options set a template:
@@ -76,21 +88,21 @@ OPTIONS
   -0            : Read null terminated lines from input.
   -i IN-FILE    : Set file from which to read selections instead of stdin.
 
- These options determine line selection utility:
+ These options control which line selection utility is used:
   -x            : Use a graphical line selection tool.
   -y            : Use a terminal line selection tool.
   -z TOOL       : Use the given line selection tool.
 
 TOOLS
  The following interactive line selection tools are supported:
- dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta, sentaku, slmenu,
- and vis-menu.
+  choose, dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta, sentaku,
+  slmenu, and vis-menu.
 
 PLUGINS
- Plugins extend cz for an application specific task. Each defines input lines
-  and options like the delimiter and templates.
+ Plugins extend cz for an application specific task. Each plugin defines input
+  lines and options like the delimiter and templates.
  Run 'cz -l' to list plugins and 'cz -h PLUGIN' or 'cz help' for help text.
- All commands starting with 'cz_' are considered cz plugins.
+ All commands starting with 'cz_' are considered plugins.
 
 TEMPLATES
  Substrings of TEMPLATE in the following formats are replaced with
@@ -101,34 +113,19 @@ TEMPLATES
      {X,Y,Z} - fields X, Y, and Z
 
  Append @C, @E, @P, or @Q to transform selected fields:
-  @C - Insert argument directly. This is risky for command strings!
-  @E - Replace backslash escape sequences in arguments with bash $'...' quotes.
-  @P - Expand arguments for use in prompt strings.
-  @Q - Quote arguments for use in command input. This is the default.
+  {X@C} - Insert argument directly. This is risky for command strings!
+  {X@E} - Replace backslash escape sequences in arguments with bash $'...' quotes.
+  {X@P} - Expand arguments for use in prompt strings.
+  {X@Q} - Quote arguments for use in command input. This is the default.
 
 ENVIRONMENT
- CZ_GUI         : preferred interface - 1=graphical 0=terminal
- CZ_BINS_GUI    : list of graphical utilities in order of preference
- CZ_BINS_TTY    : list of terminal utilities in order of preference
+ CZ_GUI         : The preferred interface - 1=graphical 0=terminal
+ CZ_BINS_GUI    : A list of graphical utilities in order of preference
+ CZ_BINS_TTY    : A list of terminal utilities in order of preference
  CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
+ CZ_DMENU_FONT  : The font to use for dmenu.
+ CZ_ROFI_THEME  : The theme to use for rofi.
 #+end_src
-
-** Tools
-
-Cz suports the following line selection tools:
- - [[https://tools.suckless.org/dmenu][dmenu]]
- - [[https://github.com/junegunn/fzf][fzf]]
- - [[https://github.com/jhawthorn/fzy][fzy]]
- - [[http://www.ossp.org/pkg/tool/iselect][iselect]]
- - [[https://github.com/mptre/pick][pick]]
- - [[https://code.reversed.top/user/xaizek/pipedial][pipedial]]
- - [[https://github.com/davatorium/rofi][rofi]]
- - [[https://github.com/garybernhardt/selecta][selecta]]
- - [[https://github.com/rcmdnk/sentaku][sentaku]]
- - [[https://bitbucket.org/rafaelgg/slmenu][slmenu]] (defunct?)
- - [[https://github.com/martanne/vis][vis-menu]]
-
-Thanks to the authors of the above tools!
 
 ** Configuration
 To get the most out of cz users should consider binding shell and window manager keys.

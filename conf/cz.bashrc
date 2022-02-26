@@ -8,6 +8,12 @@ fi
 # Disable graphical line selection for the shell
 export CZ_GUI=0
 
+# Set rofi theme
+# export CZ_ROFI_THEME="solarized"
+
+# Set dmenu font
+# export CZ_DMENU_FONT="Unifont:normal:pixelsize=14"
+
 # Core Functionality
 # Insert selected cz plugin output into the readline buffer at cursor
 bind -x '"\C-xx":rleval cz meta -q'             # insert field(s)
