@@ -709,7 +709,7 @@ TOOLS
   slmenu, and vis-menu.
 
 PLUGINS
- Plugins extend cz for an application specific task. Each plugin defines input
+ Plugins use cz for an application specific task. Each plugin defines input
   lines and options like the delimiter and templates.
  Run 'cz -l' to list plugins and 'cz -h PLUGIN' or 'cz help' for help text.
  All commands starting with 'cz_' are considered plugins.
@@ -729,10 +729,9 @@ TEMPLATES
   {X@Q} - Quote arguments for use in command input. This is the default.
 
 ENVIRONMENT
- CZ_GUI         : The preferred interface - 1=graphical 0=terminal
- CZ_BINS_GUI    : A list of graphical utilities in order of preference
- CZ_BINS_TTY    : A list of terminal utilities in order of preference
- CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
+ CZ_GUI         : The preferred interface (1=graphical 0=terminal).
+ CZ_BINS        : A list of line selection tools in order of preference.
+ CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB).
  CZ_DMENU_FONT  : The font to use for dmenu.
  CZ_ROFI_THEME  : The theme to use for rofi.
 EOF
@@ -765,6 +764,7 @@ pipedial  https://code.reversed.top/user/xaizek/pipedial
 rofi      https://github.com/davatorium/rofi
 selecta   https://github.com/garybernhardt/selecta
 sentaku   https://github.com/rcmdnk/sentaku
+sk        https://github.com/lotabout/skim
 slmenu    https://bitbucket.org/rafaelgg/slmenu
 vis-menu  https://github.com/martanne/vis
 EOF
@@ -773,9 +773,9 @@ EOF
     IFS=: read -r des exp <<< "${hows[$(( RANDOM % ${#hows[@]} ))]}"
     use+=$(printf "\n\nEXAMPLES\n %s\n %s\n" "$des" "$exp")
     # here are the supporterd line selection tools
-    local gbins=() tbins=()
-    read -r -a gbins <<< "${CZ_BINS_GUI:-choose dmenu rofi}"
-    read -r -a tbins <<< "${CZ_BINS_TTY:-fzf fzy pick pipedial selecta sentaku iselect slmenu vis-menu}"
+    declare -A gbins tbins
+    while read -r -d ' ' x; do gbins["$x"]=1; done <<< "choose dmenu rofi "
+    while read -r -d ' ' x; do tbins["$x"]=1; done <<< "fzf fzy pick pipedial selecta sentaku shuf sk iselect slmenu vis-menu "
     # determine type of interface for line selection tool
     local app="" gfx=""
     IFS=: read -r gfx app _ <<< "${CZ_GUI:-2}"
@@ -879,8 +879,8 @@ EOF
                 ;;
             z) # use a specific line selection tool
                 app="$OPTARG"
-                if ! [[ " ${gbins[*]} ${tbins[*]} " == *" ${app} "* ]]; then
-                    printf "Unknown tool %s\n" "$app" >&2
+                if ! (( gbins["$app"] + tbins["$app"] )) ; then
+                    printf "Unknown line selection tool '%s'\n" "$app" >&2
                     return 2
                 fi
                 ;;
@@ -894,22 +894,26 @@ EOF
     # determine an available line selection tool
     local got=""
     if [ -z "$app" ]; then
-        # graphical or terminal
-        local tools=()
-        case "$gfx" in
-            0) tools=("${tbins[@]}") ;;
-            1) tools=("${gbins[@]}") ;;
-            *) tools=("${gbins[@]}" "${tbins[@]}") ;;
-        esac
-        # use first available tool
-        for app in "${tools[@]}"; do
+        local tools=("${!gbins[@]}" "${!tbins[@]}")
+        # filter preferred tools by the desired interface
+        local want=()
+        while read -d ' ' -r pref; do
+            case "$gfx" in
+                0) if ! (( tbins["$pref"] )); then continue; fi ;;
+                1) if ! (( gbins["$pref"] )); then continue; fi ;;
+            esac
+            # printf "%s\n" "${pref}"
+            want+=("$pref")
+        done <<< "${CZ_BINS:-${tools[*]}} ${tools[*]}"
+        # use the first available tool
+        for app in "${want[@]}"; do
             if type "$app" &>/dev/null; then
                 got="$app"
                 break
             fi
         done
         app="$got"
-        # no tool found
+        # bail out if no appropriate tool was found
         if [ -z "$got" ]; then
             printf "No line selection tools found!\nTry installing one of these:\n" >&2
             printf "%s\n" "${tools[@]}" | sort >&2
@@ -1016,7 +1020,13 @@ EOF
                   selecta --height=full
                   ;;
               sentaku)
-                  sentaku -s $'\n' | head -n1
+                  sentaku -s $'\n' | head -n 1
+                  ;;
+              shuf)
+                  shuf -n 1
+                  ;;
+              sk)
+                  sk
                   ;;
               slmenu)
                   slmenu -i -l 30
@@ -1412,7 +1422,7 @@ cz bluetooth device
 Select from known bluetooth devices.
 EOF
     req bluetoothctl || return 5
-    cz -f '1@C' -e 'bluetoothctl info {1}' \
+    cz -f '1@C' -e 'bluetoothctl connect {1}' \
        -i <(bluetoothctl devices)
 }
 
@@ -2447,6 +2457,15 @@ EOF
     xmllint --html --xmlout "$f" 2>/dev/null | cz xml value
 }
 
+cz_http_status() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz http status
+Select an HTTP status code.
+EOF
+    local url="https://www.iana.org/assignments/http-status-codes/http-status-codes-1.csv"
+    cz -d, -f1 -i <(hold -ep curl -fsS "$url" | awk 'NR == 1{ }; NR != 1 { print $0; }')
+}
+
 cz_i3_bind() {
     { hep "$CZ_HELP" && return; } <<EOF
 cz i3 bind
@@ -2988,6 +3007,15 @@ EOF
     local sink
     if ! sink=$(cz -u pulseaudio sink); then return 2; fi
     cz -f 0 -e "pactl set-sink-volume $sink {0}" -i <(printf "%s%%\n" {100..0..5})
+}
+
+cz_pulseaudio_input() {
+    { hep "$CZ_HELP" && return; } <<EOF
+cz pulseaudio sink volume
+Select a pulseaudio sink input.
+EOF
+    req pactl || return 5
+    cz -f 0 -e 'cz -e "pactl move sink-input {0} {{0}}" pulseaudio sink' -i <(pactl list short sink-inputs)
 }
 
 cz_pulseaudio_source() {

@@ -26,7 +26,8 @@ And a whole lot more\!
 
 ## Tools
 
-Cz supports the following line selection tools:
+Cz supports the following line selection
+    tools:
 
   - [choose](https://github.com/chipsenkbeil/choose)
   - [dmenu](https://tools.suckless.org/dmenu)
@@ -38,6 +39,7 @@ Cz supports the following line selection tools:
   - [rofi](https://github.com/davatorium/rofi)
   - [selecta](https://github.com/garybernhardt/selecta)
   - [sentaku](https://github.com/rcmdnk/sentaku)
+  - [shuf](https://www.gnu.org/software/coreutils/manual/html_node/shuf-invocation.html)
   - [slmenu](https://bitbucket.org/rafaelgg/slmenu) (defunct?)
   - [vis-menu](https://github.com/martanne/vis)
 
@@ -100,7 +102,7 @@ bash\`.
       slmenu, and vis-menu.
 
     PLUGINS
-     Plugins extend cz for an application specific task. Each plugin defines input
+     Plugins use cz for an application specific task. Each plugin defines input
       lines and options like the delimiter and templates.
      Run 'cz -l' to list plugins and 'cz -h PLUGIN' or 'cz help' for help text.
      All commands starting with 'cz_' are considered plugins.
@@ -120,10 +122,9 @@ bash\`.
       {X@Q} - Quote arguments for use in command input. This is the default.
 
     ENVIRONMENT
-     CZ_GUI         : The preferred interface - 1=graphical 0=terminal
-     CZ_BINS_GUI    : A list of graphical utilities in order of preference
-     CZ_BINS_TTY    : A list of terminal utilities in order of preference
-     CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB)
+     CZ_GUI         : The preferred interface (1=graphical 0=terminal).
+     CZ_BINS        : A list of line selection tools in order of preference.
+     CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB).
      CZ_DMENU_FONT  : The font to use for dmenu.
      CZ_ROFI_THEME  : The theme to use for rofi.
 
