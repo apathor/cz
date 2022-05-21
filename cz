@@ -764,6 +764,7 @@ pipedial  https://code.reversed.top/user/xaizek/pipedial
 rofi      https://github.com/davatorium/rofi
 selecta   https://github.com/garybernhardt/selecta
 sentaku   https://github.com/rcmdnk/sentaku
+shuf      https://www.gnu.org/software/coreutils
 sk        https://github.com/lotabout/skim
 slmenu    https://bitbucket.org/rafaelgg/slmenu
 vis-menu  https://github.com/martanne/vis
@@ -781,11 +782,11 @@ EOF
     IFS=: read -r gfx app _ <<< "${CZ_GUI:-2}"
     if [ -z "$DISPLAY" ]; then gfx=0; fi
     # set options from the environment
-    local tpl="${CZ_TEMPLATE}"    # string command template
-    local fld="${CZ_FIELDS}"      # string field selection
-    local mode="${CZ_MODE}"       # integer program mode
-    local help="${CZ_HELP}"       # string indicator for help requested
-    local dlm="${CZ_DELIM:-$IFS}" # string delimeter to split selected line
+    local tpl="${_CZ_TEMPLATE}"    # string command template
+    local fld="${_CZ_FIELDS}"      # string field selection
+    local mode="${_CZ_MODE}"       # integer program mode
+    local help="${_CZ_HELP}"       # string indicator for help requested
+    local dlm="${_CZ_DELIM:-$IFS}" # string delimeter to split selected line
     # set option defaults
     local inp="/dev/stdin"     # string file from which to select a line
     local buf=0                # boolean require buffered stdin for command
@@ -939,12 +940,12 @@ EOF
         fi
         shift "$word"
         # run the plugin with override environment variables
-        CZ_DELIM="$dlm" \
-                CZ_FIELDS="$fld" \
+        _CZ_DELIM="$dlm" \
+                _CZ_FIELDS="$fld" \
                 CZ_GUI="${gfx}:${app}" \
-                CZ_HELP="$help" \
-                CZ_MODE="$mode" \
-                CZ_TEMPLATE="$tpl" \
+                _CZ_HELP="$help" \
+                _CZ_MODE="$mode" \
+                _CZ_TEMPLATE="$tpl" \
                 CZ_DMENU_COLOR=$(indirect "${plug^^}_DMENU_COLOR" "$CZ_DMENU_COLOR") \
                 CZ_DMENU_FONT=$(indirect "${plug^^}_DMENU_FONT" "$CZ_DMENU_FONT") \
                 CZ_ROFI_THEME=$(indirect "${plug^^}_ROFI_THEME" "$CZ_ROFI_THEME") \
@@ -1086,16 +1087,16 @@ EOF
                 printf "Failed to parse template: %s\n" "$tpl" >&2
                 return 5
             fi
-            unset -v CZ_DELIM CZ_FIELDS CZ_HELP CZ_MODE CZ_TEMPLATE HOLD_CLEAR
+            unset -v _CZ_DELIM _CZ_FIELDS _CZ_HELP _CZ_MODE _CZ_TEMPLATE HOLD_CLEAR
             # eval the command maybe passing through stdin or the terminal
             if ((${#stdin})); then
-                unset -v CZ_DELIM CZ_FIELDS CZ_HELP CZ_MODE CZ_TEMPLATE HOLD_CLEAR
+                unset -v _CZ_DELIM _CZ_FIELDS _CZ_HELP _CZ_MODE _CZ_TEMPLATE HOLD_CLEAR
                 CZ_GUI="${gfx}:${app}" eval "$cmd" < <(printf "%s\n" "${stdin[@]}")
             elif [ -n "$PS1" ]; then
-                unset -v CZ_DELIM CZ_FIELDS CZ_HELP CZ_MODE CZ_TEMPLATE HOLD_CLEAR
+                unset -v _CZ_DELIM _CZ_FIELDS _CZ_HELP _CZ_MODE _CZ_TEMPLATE HOLD_CLEAR
                 CZ_GUI="${gfx}:${app}" eval "$cmd" < /dev/tty
             else
-                unset -v CZ_DELIM CZ_FIELDS CZ_HELP CZ_MODE CZ_TEMPLATE HOLD_CLEAR
+                unset -v _CZ_DELIM _CZ_FIELDS _CZ_HELP _CZ_MODE _CZ_TEMPLATE HOLD_CLEAR
                 CZ_GUI="${gfx}:${app}" eval "$cmd"
             fi
             ;;
@@ -1194,7 +1195,7 @@ function _cz() {
 complete -F _cz cz
 
 cz_meta() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz meta [MODE-OPTION] [PREFIX] [ARGUMENTS]
 Select a cz plugin and run it in the given mode.
 The mode options are -o -p -q -r -s -t -u. The default mode is -p.
@@ -1229,7 +1230,7 @@ EOF
 }
 
 cz_mode() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz mode [PREFIX] [ARGUMENTS]
 Select a cz mode then run a plugin in that mode.
 EOF
@@ -1240,7 +1241,7 @@ EOF
 ####
 
 cz_argv() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz argv [ARGS]
 Select from given arguments.
 EOF
@@ -1248,7 +1249,7 @@ EOF
 }
 
 cz_anagram() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz anagram TEXT [WORDS]
 Select from anagrams of TEXT.
 Optionally limit to a maximum number of WORDS.
@@ -1272,7 +1273,7 @@ anc() {
 }
 
 cz_ancestor() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ancestor [DIRECTORY]
 Select from parent directories.
 EOF
@@ -1282,7 +1283,7 @@ EOF
 }
 
 cz_ansible_group() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ansible group
 Select a group from an ansible inventory then draw a graph of its members.
 See ANSIBLE_INVENTORY and ANSIBLE_CONFIG environment variables.
@@ -1294,7 +1295,7 @@ EOF
 }
 
 cz_ansible_host() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ansible host
 Select a host from an ansible inventory then print its variables as JSON.
 See ANSIBLE_INVENTORY and ANSIBLE_CONFIG environment variables.
@@ -1306,7 +1307,7 @@ EOF
 }
 
 cz_ansible_doc() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ansible doc
 Select from ansible documentation topics.
 EOF
@@ -1315,7 +1316,7 @@ EOF
 }
 
 cz_apparix() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz apparix
 Select from apparix bookmarks.
 EOF
@@ -1328,7 +1329,7 @@ cz_apt() {
 }
 
 cz_apt_package() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz apt package [QUERY]
 Select from apt package listings matching QUERY.
 EOF
@@ -1344,7 +1345,7 @@ EOF
 }
 
 cz_apt_installed() {
-        { hep "$CZ_HELP" && return; } <<EOF
+        { hep "$_CZ_HELP" && return; } <<EOF
 cz apt installed
 Select from installed apt packages.
 EOF
@@ -1355,7 +1356,7 @@ EOF
 }
 
 cz_bash_alias() {
-        { hep "$CZ_HELP" && return; } <<EOF
+        { hep "$_CZ_HELP" && return; } <<EOF
 cz bash alias
 Select from defined bash aliases.
 EOF
@@ -1363,7 +1364,7 @@ EOF
 }
 
 cz_bash_bind_function() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz bash bind function
 Select from bash internal readline functions.
 EOF
@@ -1371,7 +1372,7 @@ EOF
 }
 
 cz_bash_bind_key() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz bash bind key
 Select from bash key bindings.
 EOF
@@ -1379,7 +1380,7 @@ EOF
 }
 
 cz_bash_completion() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz bash completion
 Select from bash completion function configuration.
 EOF
@@ -1387,15 +1388,15 @@ EOF
 }
 
 cz_bash_help() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz bash help
 Select from bash help topics.
 EOF
-   cz -e 'help {0}' -i <(insulate ^CZ_ cz -o compgen helptopic)
+   cz -e 'help {0}' -i <(insulate ^_CZ_ cz -o compgen helptopic)
 }
 
 cz_bash_job() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz bash job
 Select a bash background job and move it to the foreground.
 EOF
@@ -1407,7 +1408,7 @@ EOF
 }
 
 cz_bash_history() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz bash history
 Select a command from bash history then run it.
 EOF
@@ -1417,7 +1418,7 @@ EOF
 }
 
 cz_bluetooth_device() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz bluetooth device
 Select from known bluetooth devices.
 EOF
@@ -1427,7 +1428,7 @@ EOF
 }
 
 cz_bool() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz bool
 Select a true or false value.
 EOF
@@ -1435,7 +1436,7 @@ EOF
 }
 
 cz_box() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz box
 Select an ascii box style then run boxes as a filter with that style.
 EOF
@@ -1448,7 +1449,7 @@ cz_buku() {
 }
 
 cz_buku_bookmark() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz buku bookmark [QUERY]
 Select a buku bookmark then open it in a browser.
 EOF
@@ -1459,7 +1460,7 @@ EOF
 }
 
 cz_buku_tag() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz buku tag [QUERY]
 Select a buku tag.
 EOF
@@ -1473,19 +1474,19 @@ EOF
 }
 
 cz_color() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz color
 Select a hex color by name from available sources.
 EOF
     req sort || return 5
     cz -d $'\t' -f 1 \
-       -i <(( insulate ^CZ_ cz -o xkcd rgb; insulate ^CZ_ cz -o x11 rgb ) | sort)
+       -i <(( insulate ^_CZ_ cz -o xkcd rgb; insulate ^_CZ_ cz -o x11 rgb ) | sort)
 }
 
 declare n=""
 while read -r n _; do
     eval "cz_compgen_$n() { \
-    { hep \"\$CZ_HELP\" && return; } <<EOF
+    { hep \"\$_CZ_HELP\" && return; } <<EOF
 cz compgen $n [PREFIX]
 Select from bash builtin $n completion.
 EOF
@@ -1520,7 +1521,7 @@ EOF
 unset n
 
 cz_command() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz command
 Select a command and run it.
 EOF
@@ -1528,7 +1529,7 @@ EOF
 }
 
 cz_descendant() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz descendant [DIRECTORY]
 Select from parent directories.
 EOF
@@ -1538,7 +1539,7 @@ EOF
 }
 
 cz_dict_strategy() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz dict strategy [QUERY]
 Select a dict server search strategy.
 EOF
@@ -1548,7 +1549,7 @@ EOF
 }
 
 cz_dict_word() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz dict word [QUERY]
 Select a word from a dict server and print its definition.
 EOF
@@ -1562,7 +1563,7 @@ cz_dir() {
 }
 
 cz_dnf_package() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz dnf package
 Select a dnf package by name then print info about it.
 EOF
@@ -1571,7 +1572,7 @@ EOF
 }
 
 cz_dns() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz dns HOST
 Select from records associated with given host.
 EOF
@@ -1589,12 +1590,12 @@ EOF
         while read -r rec; do
             recs+=("$(printf "%s %s\n" "$rtype" "$rec")")
         done <<< "$resp"
-    done < <(insulate ^CZ_ cz -o dns rtype | grep -v XFR)
+    done < <(insulate ^_CZ_ cz -o dns rtype | grep -v XFR)
     cz -f 1: -i <(printf "%s\n" "${recs[@]}")
 }
 
 cz_dns_rtype() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz dnf package
 Select a DNS rdata type.
 EOF
@@ -1607,7 +1608,7 @@ EOF
 }
 
 cz_dns_tld() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz dns tld
 Select a DNS top-level-domain as recorded by IANA.
 EOF
@@ -1617,7 +1618,7 @@ EOF
 }
 
 cz_docker_container() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz docker container
 Select a docker container.
 EOF
@@ -1627,7 +1628,7 @@ EOF
 }
 
 cz_docker_image() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz docker image
 Select a docker image.
 EOF
@@ -1637,7 +1638,7 @@ EOF
 }
 
 cz_docker_ps() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz docker ps
 Select a running docker container process.
 EOF
@@ -1647,7 +1648,7 @@ EOF
 }
 
 cz_env() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz env
 Select an environment variable.
 EOF
@@ -1657,7 +1658,7 @@ EOF
 }
 
 cz_fc_font() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz fc font
 Select a font file known to fontconfig.
 EOF
@@ -1666,7 +1667,7 @@ EOF
 }
 
 cz_ffmpeg_format() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ffmpeg format
 Select from data formats supported by ffmpeg.
 EOF
@@ -1675,7 +1676,7 @@ EOF
 }
 
 cz_ffmpeg_encoder() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ffmpeg encoder
 Select from encoders supported by ffmpeg.
 EOF
@@ -1684,7 +1685,7 @@ EOF
 }
 
 cz_ffmpeg_decoder() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ffmpeg decoder
 Select from decoders supported by ffmpeg.
 EOF
@@ -1693,7 +1694,7 @@ EOF
 }
 
 cz_figlet_font() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz figlet font
 Select a font file usable by figlet.
 EOF
@@ -1710,7 +1711,7 @@ cz_file() {
 }
 
 cz_find_file() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz find file [DIRECTORY] [PATTERN]
 Select a file under DIRECTORY (or current working directory)
  with full path matching PATTERN.
@@ -1731,7 +1732,7 @@ EOF
 }
 
 cz_find_dir() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz find dir [DIRECTORY] [PATTERN]
 Select a file under DIRECTORY (or current working directory)
  with full path matching PATTERN.
@@ -1752,7 +1753,7 @@ EOF
 }
 
 cz_firefox_tab() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz firefox tab
 Select an open firefox tab.
 EOF
@@ -1767,7 +1768,7 @@ EOF
 }
 
 cz_flatpak_app() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz flatpak app
 Select an application installed via flatpak.
 EOF
@@ -1776,7 +1777,7 @@ EOF
 }
 
 cz_flatpak_package() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz flatpak package [REMOTE]
 Select a package available at the given REMOTE then install it.
 EOF
@@ -1789,7 +1790,7 @@ EOF
 }
 
 cz_flatpak_remote() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz flatpak remote
 Select a flatpak remote repository by name.
 EOF
@@ -1798,7 +1799,7 @@ EOF
 }
 
 cz_flatpak_runtime() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz flatpak runtime
 Select a runtime installed via flatpak.
 EOF
@@ -1811,7 +1812,7 @@ cz_gcloud() {
 }
 
 cz_gcloud_auth() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud auth
 Select an available google cloud identity.
 EOF
@@ -1820,7 +1821,7 @@ EOF
 }
 
 cz_gcloud_bucket() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud bucket
 Select a google cloud storage bucket.
 EOF
@@ -1829,38 +1830,38 @@ EOF
 }
 
 cz_gcloud_bucket_file() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud bucket file [BUCKET]
 Select a file from a google cloud storage bucket.
 EOF
     req gsutil || return 5
-    local b="${1:-$(insulate ^CZ_ cz -u gcloud bucket)}"
+    local b="${1:-$(insulate ^_CZ_ cz -u gcloud bucket)}"
     if [ -z "$b" ]; then return 2; fi
     cz -f 2 -i <(gsutil ls -lr "$b"'**' | sed '$d')
 }
 
 cz_gcloud_bq_dataset() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud bq dataset [PROJECT]
 Select a Google BigQuery dataset and describe it in JSON.
 EOF
     req bq jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     cz -f 0 -i <(bq --format json --project_id "$proj" ls \
                     | jq -r '.[] | [.id, (.datasetReference | (.datasetId, .projectId)), .location] | @tsv')
 }
 
 cz_gcloud_bq_table() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud bq table [PROJECT] [DATASET]
 Select a Google BigQuery table from a dataset and describe it in JSON.
 EOF
     req bq jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then
         return 2
     fi
-    local ds="${2:-$(insulate ^CZ_ cz -u gcloud bq dataset "${proj@Q}")}"
+    local ds="${2:-$(insulate ^_CZ_ cz -u gcloud bq dataset "${proj@Q}")}"
     if [ -z "$ds" ]; then
         return 2
     fi
@@ -1869,12 +1870,12 @@ EOF
 }
 
 cz_gcloud_compute_address() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud compute address [PROJECT]
 Select a Google cloud compute address and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format=json compute addresses describe --region {2} {1}" \
        -i <(gcloud --project="$proj" compute addresses list --format=json \
@@ -1882,12 +1883,12 @@ EOF
 }
 
 cz_gcloud_compute_disk() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud compute disk [PROJECT]
 Select a Google cloud compute disk and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 1 -e "gcloud --project ${proj@Q} --format=json compute disks describe --zone {2} {1}" \
        -i <(gcloud --project "$proj" --format=json compute disks list \
@@ -1895,12 +1896,12 @@ EOF
 }
 
 cz_gcloud_compute_image() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud compute image [PROJECT]
 Select a Google cloud compute image and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json compute images describe {0} " \
        -i <(gcloud --project "$proj" --format json compute images list \
@@ -1908,12 +1909,12 @@ EOF
 }
 
 cz_gcloud_compute_instance() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud compute instance [PROJECT]
 Select a Google cloud compute instance and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 1 -e "gcloud --project ${proj@Q} --format json compute instances describe --zone {2} {1}" \
        -i <(gcloud --project "$proj" --format json compute instances list \
@@ -1921,14 +1922,14 @@ EOF
 }
 
 cz_gcloud_compute_machine_type() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud compute machine type [PROJECT] [ZONE]
 Select a Google cloud compute instance type.
 EOF
     req gcloud jq sort || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
-    local zone="${2:-$(insulate ^CZ_ cz -u gcloud compute zone )}"
+    local zone="${2:-$(insulate ^_CZ_ cz -u gcloud compute zone )}"
     if [ -z "$zone" ]; then return 2; fi
     cz -f 1 \
        -i <(gcloud --project="$proj" --format=json compute machine-types list --filter=zone="$zone" \
@@ -1936,12 +1937,12 @@ EOF
 }
 
 cz_gcloud_compute_network() {
-        { hep "$CZ_HELP" && return; } <<EOF
+        { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud compute network [PROJECT]
 Select a Google cloud network and describe it in JSON.
 EOF
         req gcloud jq || return 5
-        local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+        local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
         if [ -z "$proj" ]; then return 2; fi
         cz -f 0 -e "gcloud --project ${proj@Q} --format json compute networks describe {0}" \
            -i <(gcloud --project "$proj" --format json compute networks list \
@@ -1949,7 +1950,7 @@ EOF
 }
 
 cz_gcloud_compute_region() {
-        { hep "$CZ_HELP" && return; } <<EOF
+        { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud compute region
 Select a Google cloud region and describe it in JSON.
 EOF
@@ -1960,12 +1961,12 @@ EOF
 }
 
 cz_gcloud_compute_snapshot() {
-        { hep "$CZ_HELP" && return; } <<EOF
+        { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud compute snapshot
 Select a Google cloud disk snapshot and describe it in JSON.
 EOF
         req gcloud jq || return 5
-        local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+        local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
         if [ -z "${proj@Q}" ]; then return 2; fi
         cz -f 1 -e "gcloud --project ${proj@Q} compute snapshots describe {1}" \
            -i <(gcloud --project "$proj" --format=json compute snapshots list \
@@ -1973,12 +1974,12 @@ EOF
 }
 
 cz_gcloud_compute_subnet() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud subnet [PROJECT]
 Select a Google cloud subnet and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 2 -e "gcloud --project ${proj@Q} --format json compute networks subnets describe {2}" \
        -i <(gcloud --project "$proj" --format json compute networks subnets list \
@@ -1986,7 +1987,7 @@ EOF
 }
 
 cz_gcloud_compute_zone() {
-        { hep "$CZ_HELP" && return; } <<EOF
+        { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud compute zone
 Select a Google cloud zone and describe it in JSON.
 EOF
@@ -1997,13 +1998,13 @@ EOF
 }
 
 cz_gcloud_dns_record() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud compute image [PROJECT] [ZONE]
 Select a Google cloud DNS record and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
-    local zone="${2:-$(insulate ^CZ_ cz -u gcloud dns zone "$proj")}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
+    local zone="${2:-$(insulate ^_CZ_ cz -u gcloud dns zone "$proj")}"
     if [ -z "$proj" ] || [ -z "$zone" ]; then return 2; fi
     cz -f 0,1 \
        -i <(gcloud --project "$proj" --format json dns record-sets list -z "$zone" \
@@ -2011,12 +2012,12 @@ EOF
 }
 
 cz_gcloud_dns_zone() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud dns zone [PROJECT]
 Select a Google cloud DNS zone and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json dns managed-zones describe {0}" \
        -i <(gcloud --project "$proj" --format json dns managed-zones list \
@@ -2024,7 +2025,7 @@ EOF
 }
 
 cz_gcloud_organization() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud organization
 Select a Google cloud organization and describe it in JSON.
 EOF
@@ -2035,18 +2036,18 @@ EOF
 }
 
 cz_gcloud_log() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud log [PROJECT]
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud logging read 'logName : {0}' --project=${proj@Q} --limit 10 --format=json" \
        -i <(gcloud --format=json --project "$proj" logging logs list | jq -r '.[]')
 }
 
 cz_gcloud_permission() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud permission [RESOURCE]
 Select a Google cloud permission and describe it in JSON.
 If a resource URL argument is given only list applicable permissions.
@@ -2056,7 +2057,7 @@ EOF
     local url="${1}"
     if [ -z "$url" ]; then
         local org=""
-        if org=$(insulate ^CZ_ cz -u gcloud organization); then
+        if org=$(insulate ^_CZ_ cz -u gcloud organization); then
             url="//cloudresourcemanager.googleapis.com/$org"
         else
             return 2
@@ -2068,12 +2069,12 @@ EOF
 }
 
 cz_gcloud_pubsub_subscription() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud pubsub subscription [PROJECT]
 Select a Google pubsub subscription and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json pubsub subscriptions describe {0}" \
        -i <(gcloud --project "$proj" pubsub subscriptions list --format=json \
@@ -2081,12 +2082,12 @@ EOF
 }
 
 cz_gcloud_pubsub_topic() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud pubsub topic [PROJECT]
 Select a Google pubsub topic and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json pubsub topics describe {0}" \
        -i <(gcloud --project "$proj" pubsub topics list --format=json \
@@ -2094,7 +2095,7 @@ EOF
 }
 
 cz_gcloud_project() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud project
 Select a Google cloud project and describe it in JSON.
 EOF
@@ -2105,12 +2106,12 @@ EOF
 }
 
 cz_gcloud_role() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud role [PROJECT]
 Select a Google cloud IAM role and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json iam roles describe {0}" \
        -i <(gcloud --project "$proj" --format json iam roles list \
@@ -2118,12 +2119,12 @@ EOF
 }
 
 cz_gcloud_serviceaccount() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud serviceaccount [PROJECT]
 Select a Google cloud service account and describe it in JSON.
 EOF
     req gcloud jq || return 5
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
     cz -f 0 -e "gcloud --project ${proj@Q} --format json iam service-accounts describe {0}" \
        -i <(gcloud --project "$proj" --format json iam service-accounts list \
@@ -2131,40 +2132,40 @@ EOF
 }
 
 cz_gcloud_sd_namespace() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud sd namespace [PROJECT] [REGION]
 Select a Google cloud service directory namespace.
 EOF
-    local proj="${1:-$(insulate ^CZ_ cz -u gcloud project)}"
-    local region="${1:-$(insulate ^CZ_ cz -u gcloud compute region)}"
+    local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
+    local region="${1:-$(insulate ^_CZ_ cz -u gcloud compute region)}"
     cz -f 0 -i <(gcloud service-directory namespaces list --project="$proj" --format=json --location="$region" \
                      | jq -r '.[].name')
 }
 
 cz_gcloud_sd_service() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud sd service [NAMESPACE]
 Select a Google cloud service directory service from the given namespace.
 EOF
-    local ns="${1:-$(insulate ^CZ_ cz -u gcloud sd namespace)}"
+    local ns="${1:-$(insulate ^_CZ_ cz -u gcloud sd namespace)}"
     cz -f 0 -e 'gcloud service-directory services resolve {0}' \
        -i <(gcloud service-directory services list --format=json --namespace "$ns" \
                 | jq -r '.[].name')
 }
 
 cz_gcloud_sd_endpoint() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gcloud sd endpoint [SERVICE]
 Select a Google cloud service directory endpoint associated with the given service.
 EOF
-    local svc="${1:-$(insulate ^CZ_ cz -u gcloud sd service)}"
+    local svc="${1:-$(insulate ^_CZ_ cz -u gcloud sd service)}"
     cz -f 0 -e 'gcloud service-directory endpoints describe --format=json {2}' \
        -i <(gcloud service-directory endpoints list --format=json --service "$svc" \
                 | jq -r '.[] | [.address, .port, .name] | @tsv')
 }
 
 cz_gh_gist() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gh gist
 Select a Github gist and view it.
 EOF
@@ -2173,7 +2174,7 @@ EOF
 }
 
 cz_gh_issue() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gh issue
 Select a Github issue and view it.
 EOF
@@ -2182,7 +2183,7 @@ EOF
 }
 
 cz_gh_pr() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gh pr
 Select a Github pull request and view it.
 EOF
@@ -2196,7 +2197,7 @@ cz_git() {
 }
 
 cz_git_config() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz git config [LOCATION]
 Select from git configuration items.
 Given a location list only items from the matching config.
@@ -2218,21 +2219,21 @@ EOF
 }
 
 cz_git_diff() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz git diff [DIRECTORY] [BRANCH]
 Select a file in git repo in the given directory that differs from the given
 branch. If unspecified the branch will be selected interactively.
 EOF
     req git || return 5
     local repo="${1:-.}"
-    local branch="${2:-$(insulate ^CZ_ cz -u -f 0 git branch "$repo")}"
+    local branch="${2:-$(insulate ^_CZ_ cz -u -f 0 git branch "$repo")}"
     if [ -z "$branch" ]; then return 2; fi
     cz -f 0 -e "git -C '$repo' diff ${branch@Q} -- {0}" \
        -i <(git -C "$repo" diff --name-only "$branch")
 }
 
 cz_git_status() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz git status [DIRECTORY]
 Select a modified file in the git repository in DIRECTORY.
 EOF
@@ -2243,7 +2244,7 @@ EOF
 }
 
 cz_git_branch() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz git branch [DIRECTORY]
 Select a branch from the git repository in DIRECTORY.
 EOF
@@ -2253,7 +2254,7 @@ EOF
 }
 
 cz_git_commit() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz git commit [DIRECTORY] [FILE]
 Select a commit from the history of the git repository in DIRECTORY.
 Given FILE, select a commit that modified that file.
@@ -2266,7 +2267,7 @@ EOF
 }
 
 cz_git_file()  {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz git file [DIRECTORY]
 Select a file managed by the git repository in DIRECTORY.
 EOF
@@ -2276,7 +2277,7 @@ EOF
 }
 
 cz_git_pickaxe() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz git pickaxe [DIRECTORY] [TERM]
 Select a commit from the history of the git repository in DIRECTORY.
 EOF
@@ -2288,7 +2289,7 @@ EOF
 }
 
 cz_git_remote() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz git remote [DIRECTORY]
 Select a remote repository known to the git repository in DIRECTORY.
 EOF
@@ -2298,7 +2299,7 @@ EOF
 }
 
 cz_git_tag() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz git tag [DIRECTORY]
 Select a tag from the git repository in DIRECTORY.
 EOF
@@ -2308,7 +2309,7 @@ EOF
 }
 
 cz_git_worktree() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz git worktree [DIRECTORY]
 Select a worktree associated with the git repository in DIRECTORY.
 EOF
@@ -2318,7 +2319,7 @@ EOF
 }
 
 cz_gpg_pubkey() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gpg key
 Select a gpg public key from the default keyring.
 EOF
@@ -2333,7 +2334,7 @@ EOF
 }
 
 cz_gpg_seckey() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz gpg seckey
 Select a gpg secret key from the default keyring.
 EOF
@@ -2348,7 +2349,7 @@ EOF
 }
 
 cz_grep() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz grep PATTERN [TARGET]
 Select a file and line matching grep results for PATTERN in TARGET.
 If TARGET is '-' cache standard input and search that file.
@@ -2377,7 +2378,7 @@ EOF
 }
 
 cz_help() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz help
 Select a cz plugin and print its usage text.
 EOF
@@ -2385,7 +2386,7 @@ EOF
 }
 
 cz_haskell_package() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz haskell package
 Select a haskell cabal package then show info about it.
 EOF
@@ -2395,7 +2396,7 @@ EOF
 }
 
 cz_haskell_installed() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz haskell installed
 Select an installed haskell cabal package then show info about it.
 EOF
@@ -2405,7 +2406,7 @@ EOF
 }
 
 cz_hg_branch() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz hg branch [DIRECTORY]
 Select a branch in the hg repository in DIRECTORY.
 EOF
@@ -2414,7 +2415,7 @@ EOF
 }
 
 cz_hg_revision() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz hg revision [DIRECTORY]
 Select a revision in the hg repository in DIRECTORY.
 EOF
@@ -2423,7 +2424,7 @@ EOF
 }
 
 cz_hg_status() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz hg status [DIRECTORY]
 Select a modified file in the hg repository in DIRECTORY.
 EOF
@@ -2432,7 +2433,7 @@ EOF
 }
 
 cz_html_element() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz html element [HTML-FILE] [< HTML-STREAM]
 Select a HTML element by xpath string and print it.
 EOF
@@ -2445,7 +2446,7 @@ EOF
 }
 
 cz_html_value() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz html value [FILE] [< STREAM]
 Select a HTML element by xpath string and extract its contents.
 EOF
@@ -2458,7 +2459,7 @@ EOF
 }
 
 cz_http_status() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz http status
 Select an HTTP status code.
 EOF
@@ -2467,7 +2468,7 @@ EOF
 }
 
 cz_i3_bind() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz i3 bind
 Select a bindsym from the current i3 configuration.
 EOF
@@ -2476,7 +2477,7 @@ EOF
 }
 
 cz_i3_mark() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz i3 mark
 Select an i3 window mark then move focus to the marked window.
 EOF
@@ -2486,7 +2487,7 @@ EOF
 }
 
 cz_i3_output() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz i3 output
 Select an i3 recognized output device.
 EOF
@@ -2505,7 +2506,7 @@ EOF
 }
 
 cz_i3_window() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz i3 window
 Select a i3 window then move focus to that window.
 EOF
@@ -2520,7 +2521,7 @@ EOF
 }
 
 cz_i3_workspace() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz i3 workspace
 Select an i3 workspace then switch to that workspace.
 EOF
@@ -2534,7 +2535,7 @@ EOF
 }
 
 cz_info()  {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz info [QUERY]
 Select an info page matching QUERY and open it for reading.
 EOF
@@ -2543,7 +2544,7 @@ EOF
 }
 
 cz_ip_addr4() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ip addr4
 Select an IPv4 interface configured on the system.
 EOF
@@ -2552,7 +2553,7 @@ EOF
 }
 
 cz_ip_addr6() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ip addr6
 Select an IPv6 interface configured on the system.
 EOF
@@ -2561,7 +2562,7 @@ EOF
 }
 
 cz_ip_route4() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ip addr4
 Select an IPv4 route configured on the system.
 EOF
@@ -2570,7 +2571,7 @@ EOF
 }
 
 cz_ip_route6() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ip addr6
 Select an IPv6 route configured on the system.
 EOF
@@ -2579,7 +2580,7 @@ EOF
 }
 
 cz_ispell() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ispell < MISPELLED > FIXED
 Select options for mispelled words in the input text.
 Print text with updated to replace words with selections.
@@ -2624,7 +2625,7 @@ cz_jq() {
 }
 
 cz_jq_json() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz jq json [JSON-FILE] [< JSON-STREAM]
 Select from jq path strings for each scalar within the input file or stream
  then use that path to extract the JSON element.
@@ -2648,7 +2649,7 @@ EOF
 }
 
 cz_jq_yaml() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz jq yaml [YAML-FILE] [< YAML-STREAM]
 Select from jq path strings for each element of the input file or stream
  then use that path to extract the YAML element.
@@ -2666,7 +2667,7 @@ EOF
 }
 
 cz_jq_toml() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz jq toml [TOML-FILE] [< TOML-STREAM]
 Select from jq path strings for each element of the input file or stream
  then use that path to extract the TOML element.
@@ -2684,7 +2685,7 @@ EOF
 }
 
 cz_kill() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz kill [PID]
 Select a running process then select a signal and send it to the selected process.
 EOF
@@ -2694,7 +2695,7 @@ EOF
 }
 
 cz_lastpass() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz lastpass
 Select the ID of a LastPass entry then look up the password component.
 EOF
@@ -2710,7 +2711,7 @@ EOF
 }
 
 cz_line() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz line [FILE] [< STREAM]
 Select a line number from the input file or stream.
 EOF
@@ -2723,7 +2724,7 @@ EOF
 }
 
 cz_locate() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz locate [GLOB ...]
 Select a file from the locate database matching the given glob strings.
 EOF
@@ -2732,7 +2733,7 @@ EOF
 }
 
 cz_locate_regex() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz locate regex [PATTERN ...]
 Select a file from the locate database matching the given regular expressions.
 EOF
@@ -2741,7 +2742,7 @@ EOF
 }
 
 cz_man() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz man [QUERY]
 Select a manual page matching the given query and open it for reading.
 EOF
@@ -2750,7 +2751,7 @@ EOF
 }
 
 cz_mimetype() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz mimetype
 Select a mimetype and related file extensions.
 EOF
@@ -2761,7 +2762,7 @@ EOF
 for t in artist album title track name genre date composer performer comment disc filename; do
     eval "
 cz_mpd_tag_$t() {
-    { hep \"\$CZ_HELP\" && return; } <<EOF
+    { hep \"\$_CZ_HELP\" && return; } <<EOF
 cz mpd $t
 Select from available mpd database $t tags.
 EOF
@@ -2772,7 +2773,7 @@ done
 unset t
 
 cz_mpd_output() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz mpd output
 Select an mpd output and toggle it between enabled and disabled.
 EOF
@@ -2781,7 +2782,7 @@ EOF
 }
 
 cz_mpd_playlist() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz mpd output
 Select an mpd playlist then load it replacing the current playlist.
 EOF
@@ -2790,20 +2791,20 @@ EOF
 }
 
 cz_mpd_search() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz mpd search file [TYPE] [QUERY]
 Select an mpd tag of the given kind then select for songs matching that tag.
 EOF
     req mpc || return 5
-    local kind="${1:-$(insulate ^CZ_ cz -u mpd type)}"
+    local kind="${1:-$(insulate ^_CZ_ cz -u mpd type)}"
     if [ -z "$kind" ]; then return 2; fi
-    local query="${2:-$(insulate ^CZ_ cz -u mpd tag "$kind")}"
+    local query="${2:-$(insulate ^_CZ_ cz -u mpd tag "$kind")}"
     if [ -z "$query" ]; then return 2; fi
     cz -d '' -f 0 -i <(mpc search "$kind" "$query")
 }
 
 cz_mpd_seek() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz mpd seek
 Select a percentage of the current song then seek to that position.
 EOF
@@ -2813,7 +2814,7 @@ EOF
 }
 
 cz_mpd_track() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz mpd track
 Select a track number from the current mpd playlist then play that track.
 EOF
@@ -2823,7 +2824,7 @@ EOF
 }
 
 cz_mpd_type() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz mpd type
 Select an mpd tag type.
 EOF
@@ -2832,7 +2833,7 @@ EOF
 }
 
 cz_notmuch() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz notmuch QUERY
 Select a message matcing the given query of a notmuch mail index.
 EOF
@@ -2841,7 +2842,7 @@ EOF
 }
 
 cz_nss_group() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz nss group
 Select a system group.
 EOF
@@ -2850,7 +2851,7 @@ EOF
 }
 
 cz_nss_host() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz nss host
 Select a host from the system host name database.
 EOF
@@ -2859,7 +2860,7 @@ EOF
 }
 
 cz_nss_network() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz nss network
 Select a network from the system network database.
 EOF
@@ -2868,7 +2869,7 @@ EOF
 }
 
 cz_nss_passwd() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz nss passwd
 Select a system user.
 EOF
@@ -2877,7 +2878,7 @@ EOF
 }
 
 cz_nss_protocol() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz nss protocol
 Select a protocol from the system protocol database.
 EOF
@@ -2886,7 +2887,7 @@ EOF
 }
 
 cz_nss_service() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz nss service
 Select a service from the system service database.
 EOF
@@ -2895,7 +2896,7 @@ EOF
 }
 
 cz_ruby_gem() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ruby gem
 Select an installed ruby gem package by name.
 EOF
@@ -2905,7 +2906,7 @@ EOF
 }
 
 cz_pandoc() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz pandoc [FILE]
 Select a pandoc output format then convert the given file into that format.
 If the file argument is omitted input is read from stdin.
@@ -2919,7 +2920,7 @@ EOF
 }
 
 cz_pass() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz pass
 Select an entry from a pass directory and print its contents.
 EOF
@@ -2930,7 +2931,7 @@ EOF
 }
 
 cz_pci() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz pci
 Select a PCI device.
 EOF
@@ -2939,7 +2940,7 @@ EOF
 }
 
 cz_perl_installed() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz perl installed
 Select an installed perl module.
 EOF
@@ -2948,7 +2949,7 @@ EOF
 }
 
 cz_perl_doc() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz perl doc
 Select a perldoc page and open it for reading.
 EOF
@@ -2957,7 +2958,7 @@ EOF
 }
 
 cz_process() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz process
 Select a system process by PID.
 EOF
@@ -2972,7 +2973,7 @@ EOF
 }
 
 cz_pydoc() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz pydoc
 Select a python document and open it for reading.
 EOF
@@ -2981,7 +2982,7 @@ EOF
 }
 
 cz_python_installed() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz python installed
 Select an installed python package and show info about it.
 EOF
@@ -2990,7 +2991,7 @@ EOF
 }
 
 cz_pulseaudio_sink() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz pulseaudio sink
 Select a pulseaudio sink and toggle its mute state.
 EOF
@@ -2999,7 +3000,7 @@ EOF
 }
 
 cz_pulseaudio_sink_volume() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz pulseaudio sink volume
 Select a pulseaudio sink and a percentage to set its volume.
 EOF
@@ -3010,7 +3011,7 @@ EOF
 }
 
 cz_pulseaudio_input() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz pulseaudio sink volume
 Select a pulseaudio sink input.
 EOF
@@ -3019,7 +3020,7 @@ EOF
 }
 
 cz_pulseaudio_source() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz pulseaudio source
 Select a pulseaudio source and toggle its mute state.
 EOF
@@ -3028,7 +3029,7 @@ EOF
 }
 
 cz_pwgen() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz pwgen [LENGTH]
 Select a generated password of given length.
 EOF
@@ -3037,7 +3038,7 @@ EOF
 }
 
 cz_raku_module() {
-        { hep "$CZ_HELP" && return; } <<EOF
+        { hep "$_CZ_HELP" && return; } <<EOF
 cz raku installed
 Select a generated password of given length.
 EOF
@@ -3046,7 +3047,7 @@ EOF
 }
 
 cz_screen_session() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz screen session
 Select a screen session and attach to it.
 EOF
@@ -3055,7 +3056,7 @@ EOF
 }
 
 cz_signal() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz signal
 Select a system signal.
 EOF
@@ -3075,7 +3076,7 @@ cz_ssh() {
 }
 
 cz_ssh_host() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ssh host [COMMAND]
 Select a host from SSH configuration then connect to that host.
 EOF
@@ -3084,7 +3085,7 @@ EOF
 }
 
 cz_ssh_key() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz ssh key
 Select a key available to the running ssh-agent.
 EOF
@@ -3093,7 +3094,7 @@ EOF
 }
 
 cz_stream() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz stream
 Select a standard stream.
 EOF
@@ -3105,7 +3106,7 @@ EOF
 }
 
 cz_surfraw() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz surfraw [QUERY ...]
 Select a surfraw elvi then run it with the given query.
 EOF
@@ -3114,7 +3115,7 @@ EOF
 }
 
 cz_sysctl() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz sysctl
 Select a kernel parameter.
 EOF
@@ -3123,7 +3124,7 @@ EOF
 }
 
 cz_systemd_unit() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz systemd unit [user|system] [TYPE]
 Select a systemd system unit then check its status.
 EOF
@@ -3139,7 +3140,7 @@ EOF
 }
 
 cz_systemd_file() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz systemd file [user|system] [TYPE]
 Select a systemd system unit file then check its status.
 EOF
@@ -3155,7 +3156,7 @@ EOF
 }
 
 cz_systemd_type() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz systemd type
 Select a type of systemd unit.
 EOF
@@ -3165,7 +3166,7 @@ EOF
 }
 
 cz_tar() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz tar ARCHIVE
 Select a file from a tar archive.
 EOF
@@ -3176,7 +3177,7 @@ EOF
 }
 
 cz_task() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz task [FILTER]
 Select a taskwarrior task matching the given filter.
 EOF
@@ -3185,7 +3186,7 @@ EOF
 }
 
 cz_terraform_module() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz terraform module [DIRECTORY]
 Select a terraform module call defined in the given directory.
 EOF
@@ -3203,7 +3204,7 @@ EOF
 }
 
 cz_terraform_output() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz terraform output [DIRECTORY]
 Select a terraform output variable defined in the given directory.
 EOF
@@ -3220,7 +3221,7 @@ EOF
 }
 
 cz_terraform_provider() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz terraform output [DIRECTORY]
 Select a terraform output variable defined in the given directory.
 EOF
@@ -3237,7 +3238,7 @@ EOF
 }
 
 cz_terraform_resource() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz terraform resource [DIRECTORY]
 Select a terraform resource defined in the given directory.
 EOF
@@ -3255,7 +3256,7 @@ EOF
 }
 
 cz_terraform_variable() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz terraform variable [DIRECTORY]
 Select a terraform input variable defined in the given directory.
 EOF
@@ -3273,7 +3274,7 @@ EOF
 }
 
 cz_timezone() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz timezone
 Select a timezone and print the current time in that region.
 EOF
@@ -3290,7 +3291,7 @@ EOF
 }
 
 cz_tmux_command() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz tmux command
 Select a tmux command.
 EOF
@@ -3299,7 +3300,7 @@ EOF
 }
 
 cz_tmux_key() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz tmux key
 Select a tmux key binding.
 EOF
@@ -3308,7 +3309,7 @@ EOF
 }
 
 cz_tmux_pane() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz tmux pane
 Select a pane in the current tmux session and give it focus.
 EOF
@@ -3317,7 +3318,7 @@ EOF
 }
 
 cz_tmux_session() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz tmux session
 Select a tmux session then attach to it.
 EOF
@@ -3326,7 +3327,7 @@ EOF
 }
 
 cz_tmux_window() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz tmux window
 Select a tmux window then switch to it.
 EOF
@@ -3339,13 +3340,13 @@ cz_unicode() {
 }
 
 cz_unicode_character() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz unicode character [SECTION]
 Select a unicode character from given character block or script.
 Interactively select a block if a section is not given.
 EOF
     req perl || return 5
-    local part="${1:-$(CZ_MODE="" CZ_FIELDS="" cz -p unicode block)}"
+    local part="${1:-$(_CZ_MODE="" _CZ_FIELDS="" cz -p unicode block)}"
     if [ -z "$part" ]; then return 2; fi
     read -d '' -r util <<EOF
 use strict;
@@ -3367,7 +3368,7 @@ EOF
 }
 
 cz_unicode_block() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz unicode block
 Select a unicode block by name.
 EOF
@@ -3376,7 +3377,7 @@ EOF
 }
 
 cz_unicode_script() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz unicode script
 Select a unicode script by name.
 EOF
@@ -3385,7 +3386,7 @@ EOF
 }
 
 cz_uri() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz uri [FILE] [< STREAM]
 Select a URI extracted from the input text.
 EOF
@@ -3403,7 +3404,7 @@ EOF
 }
 
 cz_usb() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz usb
 Select a USB device.
 EOF
@@ -3412,7 +3413,7 @@ EOF
 }
 
 cz_wal_theme() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz wal theme
 Select a color theme available from pywal.
 EOF
@@ -3421,7 +3422,7 @@ EOF
 }
 
 cz_word() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz word [FILE] [< STREAM]
 Select a word from the given file or stream.
 EOF
@@ -3478,7 +3479,7 @@ EOF
 }
 
 cz_whence() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz whence [COMMANDS...]
 Select from commands by the path that defines them.
 EOF
@@ -3490,7 +3491,7 @@ EOF
 }
 
 cz_x11_rgb() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz x11 rgb
 Select a color by name from the X11 flat file database.
 EOF
@@ -3505,7 +3506,7 @@ EOF
 }
 
 cz_x11_window() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz x11 window
 Select an X11 window.
 EOF
@@ -3529,7 +3530,7 @@ xclip_brief() {
 }
 
 cz_xclip_in() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz xclip in
 Select a xclip buffer and write the input stream to it.
 EOF
@@ -3538,7 +3539,7 @@ EOF
 }
 
 cz_xclip_out() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz xclip out
 Select a xclip buffer and print its contents.
 EOF
@@ -3547,7 +3548,7 @@ EOF
 }
 
 cz_xinput_device() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz xinput device
 Select an X11 device and print its name.
 EOF
@@ -3559,19 +3560,19 @@ EOF
 }
 
 cz_xinput_prop() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz xinput prop [DEVICE]
 Select a property associated with the given X11 device.
 EOF
     req xinput sed || return 5
-    local dev="${1:-$(insulate ^CZ_ cz -u -f 0 xinput device)}"
+    local dev="${1:-$(insulate ^_CZ_ cz -u -f 0 xinput device)}"
     cz -d ':' -f 1 \
        -i <(xinput list-props "$dev" \
                 | sed -n '/^[[:space:]]/!d; s/[[:space:]]*//; s/ ([0-9]*)//; p;')
 }
 
 cz_xkcd_rgb() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz xkcd rgb
 Select a hex color by name from XKCD's public flat file database.
 See https://xkcd.com/color/rgb.txt.
@@ -3582,7 +3583,7 @@ EOF
 }
 
 cz_xml_element() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz xml element [FILE] [< STREAM]
 Select a XML element by xpath string and print it.
 EOF
@@ -3595,7 +3596,7 @@ EOF
 }
 
 cz_xml_value() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz xml value [FILE] [< STREAM]
 Select a XML element by xpath string and extract its contents.
 EOF
@@ -3608,7 +3609,7 @@ EOF
 }
 
 cz_xrandr_monitor() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz xrandr monitor
 Select a X11 monitor.
 EOF
@@ -3617,7 +3618,7 @@ EOF
 }
 
 cz_xrandr_provider() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz xrandr provider
 Select a X11 provider.
 EOF
@@ -3626,7 +3627,7 @@ EOF
 }
 
 cz_xrdb_resource() {
-    { hep "$CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz xrandr provider
 Select a X11 resource.
 EOF
