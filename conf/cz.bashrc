@@ -45,3 +45,5 @@ bind -x '"\C-xD":rleval -w cz -q find dir {0}'     # find dir under directory at
 bind -x '"\C-xf":rleval -w cz -q find file . {0}'  # find file matching word at cursor
 bind -x '"\C-xF":rleval -w cz -q find file {0}'    # find file under directory at cursor
 bind -x '"\C-xl":rleval -w cz -q locate {0}'       # locate file matching word at cursor
+bind -x '"\C-xe":rleval -w cz -q grep {0}'         # select a file containing the word at cursor
+bind -x '"\C-xE":rleval -r cz -r grep {0}'         # edit the line matching the pattern at cursor

@@ -2,32 +2,42 @@
 
 ## About
 
-Cz provides a common interface to interactive line selection tools.
+Cz is a bash script that provides a common interface to interactive line selection tools.
 
-Cz also acts as a framework for line selection based applications.
+What is an "interactive line selection tool"? It's a class of programs that take as input a list of lines to be selected from then presents an interactive menu for the user to select one line. 
 
-Included are over 200 plugins for common use cases. Out of the box you
-can select from:
+Some run only in the terminal and others are graphical - cz runs an avalable tool appropriate for the situation.
 
-  - items from bash's built-in completion
+Cz also acts as a framework for pluggable line selection based applications.
+
+Included are over 240 plugins for common use cases. Out of the box you can select from:
+
   - files and directories
   - system processes
-  - git branches
-  - unicode characters
-  - pass(1) passwords
+  - items from [bash's built-in completion](https://www.gnu.org/software/bash/manual/bash.html#Programmable-Completion-Builtins-1)
+  - [git](https://git-scm.com/) branches, commits, tags, etc.
+  - [unicode](https://home.unicode.org/) characters
   - man pages and other documentation sources
-  - elements from JSON/YAML/XML documents
-  - docker images
-  - i3 window manager components
-  - terraform resources
-  - mpd tracks
+  - [pass(1)](https://www.passwordstore.org/) passwords
+  - elements from [JSON](https://www.json.org/)/[YAML](http://yaml.org/)/[XML](https://www.w3.org/XML/) documents
+  - [docker](https://www.docker.com/) images
+  - [i3 window manager](https://i3wm.org/) components
+  - [terraform](https://www.terraform.io/) elements
+  - [mpd](https://www.musicpd.org/) tracks
+  - [systemd](https://systemd.io/) info
+  - [tmux](https://github.com/tmux/tmux) components
 
 And a whole lot more\!
 
+## Pitch
+
+Do you find yourself running commands just to copy some specific string into another command?  Do you turn to a search engine for data that is available locally?  With cz a short script can eliminate that repeated toil.
+
+The core concept of cz is getting some known text into place as easily as possible. In a shell cz lets you select and insert commonly needed text right where it's needed. In a graphical environment cz can quickly select the text you need and get it onto your clipboard. 
+
 ## Tools
 
-Cz supports the following line selection
-    tools:
+Cz supports the following line selection tools:
 
   - [choose](https://github.com/chipsenkbeil/choose)
   - [dmenu](https://tools.suckless.org/dmenu)
@@ -40,7 +50,7 @@ Cz supports the following line selection
   - [selecta](https://github.com/garybernhardt/selecta)
   - [sentaku](https://github.com/rcmdnk/sentaku)
   - [shuf](https://www.gnu.org/software/coreutils/manual/html_node/shuf-invocation.html)
-  - [slmenu](https://bitbucket.org/rafaelgg/slmenu) (defunct?)
+  - [slmenu](https://github.com/joshaw/slmenu)
   - [vis-menu](https://github.com/martanne/vis)
 
 Many thanks to the authors of the above tools\!
@@ -130,16 +140,14 @@ bash\`.
 
 ## Configuration
 
-To get the most out of cz users should consider binding shell and window
-manager keys.
+To get the most out of cz users should consider binding shell and window manager keys.
 
 ### Bash
 
-Download this \[example bash config\](conf/cz.bashrc) then copy it into
+Download this [example bash config](conf/cz.bashrc) then copy it into
 your bashrc file.
 
-The example config defines several key bindings that each insert text
-into the shell's edit buffer.
+The example config defines several key bindings that each *insert text into the shell's edit buffer* or run a relevant interactive program like $EDITOR.
 
   - C-x x : select a plugin, run it, and insert fields from the selected
     line
@@ -152,6 +160,13 @@ into the shell's edit buffer.
     path
   - C-x G : select a comitted file in current git repo and insert its
     path
+  - C-x d : select a directory matching the word at cursor
+  - C-x D : select a directory under the directory at cursor
+  - C-x f : select a file matching the word at cursor
+  - C-x F : select a file under the directory at cursor
+  - C-x l : select a file in the locate database matching word at cursor
+  - C-x e : select a file containing the word at cursor
+  - C-x E : edit the line matching the pattern at cursor
 
 Bash users should source cz to load included function 'rleval'.
 
@@ -187,7 +202,7 @@ Bash users should source cz to load included function 'rleval'.
 
 ### Zsh
 
-Download this \[example zsh config\](conf/cz.zshrc) then copy it into
+Download this [example zsh config](conf/cz.zshrc) then copy it into
 your zshrc file.
 
 The example config defines the same key bindings described in the bash
@@ -195,7 +210,7 @@ section above.
 
 ### i3 Window Manager
 
-Download this \[example i3 config\](conf/cz-i3.conf) then copy it into
+Download this [example i3 config](conf/cz-i3.conf) then copy it into
 your i3 config.
 
 The example config defines the following key bindings:

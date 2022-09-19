@@ -321,7 +321,7 @@ EOF
             fi
         done < <(compgen -v)
         # run the given command in this modified environment
-        eval "$@"
+        eval "${@@Q}"
     )
 }
 
@@ -618,7 +618,7 @@ EOF
     if ! cmd=$(nth "${tmpl}" "${word/#\~/$HOME}" "${toks[@]/#\~/$HOME}"); then
         return 2
     fi
-    # switch on program mode
+    # switch based on program mode
     case "$mode" in
         insert)
             # run the command, capturing output
@@ -663,7 +663,7 @@ EOF
 
 cz() {
     # version
-    local ver="0.8"
+    local ver="0.8.1"
     # usage
     local hows="" use=""
     read -r -d '' use <<EOF
@@ -941,19 +941,19 @@ EOF
         shift "$word"
         # run the plugin with override environment variables
         _CZ_DELIM="$dlm" \
-                _CZ_FIELDS="$fld" \
-                CZ_GUI="${gfx}:${app}" \
-                _CZ_HELP="$help" \
-                _CZ_MODE="$mode" \
-                _CZ_TEMPLATE="$tpl" \
-                CZ_DMENU_COLOR=$(indirect "${plug^^}_DMENU_COLOR" "$CZ_DMENU_COLOR") \
-                CZ_DMENU_FONT=$(indirect "${plug^^}_DMENU_FONT" "$CZ_DMENU_FONT") \
-                CZ_ROFI_THEME=$(indirect "${plug^^}_ROFI_THEME" "$CZ_ROFI_THEME") \
-                HOLD_CLEAR="$clr" \
-                "$plug" "$@"
+                 _CZ_FIELDS="$fld" \
+                 CZ_GUI="${gfx}:${app}" \
+                 _CZ_HELP="$help" \
+                 _CZ_MODE="$mode" \
+                 _CZ_TEMPLATE="$tpl" \
+                 CZ_DMENU_COLOR=$(indirect "${plug^^}_DMENU_COLOR" "$CZ_DMENU_COLOR") \
+                 CZ_DMENU_FONT=$(indirect "${plug^^}_DMENU_FONT" "$CZ_DMENU_FONT") \
+                 CZ_ROFI_THEME=$(indirect "${plug^^}_ROFI_THEME" "$CZ_ROFI_THEME") \
+                 HOLD_CLEAR="$clr" \
+                 "$plug" "$@"
         return $?
     fi
-    # maybe help was requested
+    # print usage and exit if help was requested
     if [ -n "$help" ]; then
         printf "%s\n" "$use" >&2
         return
@@ -971,7 +971,7 @@ EOF
     # require at least one non-empty line
     if (("${#items[@]}" < 2)) && \
            { [ -z "${items[0]}" ] || [ "${items[0]}" == "''" ]; }; then
-        return 3
+        return 12
     fi
     # buffer stdin if reading selection input from another file
     # this is needed to pass pipe input to plugin commands
@@ -1555,7 +1555,7 @@ Select a word from a dict server and print its definition.
 EOF
     req dict || return 5
     local qry="${1:-.*}"
-    cz -f 3: -e 'dict -- {3:}' -i <(dict -m -f -s re "$qry")
+    cz -f 3: -e 'dict -- "{3:@P}"' -i <(dict -m -f -s re "$qry")
 }
 
 cz_dir() {
@@ -2250,7 +2250,7 @@ Select a branch from the git repository in DIRECTORY.
 EOF
     req git sed || return 5
     local repo="${1:-.}"
-    cz -f 0 -i <(git -C "$repo" branch -vv | sed 's/^[* ] //')
+    cz -f 0 -i <(git -C "$repo" branch -avv | sed 's/^[* ] //')
 }
 
 cz_git_commit() {
@@ -2759,6 +2759,16 @@ EOF
     cz -f 0 -i <(grep -v -e '^#' -e '^$' /etc/mime.types)
 }
 
+cz_mount() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz mount
+Select a mountpoint.
+EOF
+    req mount || return 5
+    cz -f 2 -i <(mount)
+}
+
+# generate MPD tag related functions
 for t in artist album title track name genre date composer performer comment disc filename; do
     eval "
 cz_mpd_tag_$t() {
@@ -2830,6 +2840,43 @@ Select an mpd tag type.
 EOF
     req mpc || return 5
     cz argv artist album title track name genre date composer performer comment disc filename
+}
+
+cz_mtg_set() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz mtg set
+Select an MTG set by name using data from scryfall.com.
+EOF
+    req curl sort || return 5
+    local url=""
+    if ! sets=$(hold -pe -n scryfallsets -t 86400 -- curl -sS https://api.scryfall.com/sets \
+                    | jq -r '.data[] | [.released_at, .code, .name ] | @tsv'); then
+        return 2
+    fi
+    cz -d $'\t' -f 1 -i <(sort -u <<< "${sets[@]}")
+}
+
+cz_mtg_card() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz mtg card
+Select an MTG card by name using data from scryfall.com.
+EOF
+    req curl sort || return 5
+    local url=""
+    if ! url=$(hold -pe -n scryfallbulk -t 86400 -- curl -sS https://api.scryfall.com/bulk-data \
+                   | jq -r '.data[] | select(.type == "oracle_cards") | .download_uri'); then
+        return 2
+    fi
+
+    local data="" menu=""
+    if ! data=$(hold -e -n scryfalldata -t $((86400 * 7)) curl -sS "$url"); then
+        return 2
+    fi
+    local filter='.[] | [.set, (.scryfall_uri | split("?"))[0], .name] | @tsv'
+    if ! menu=$(hold -g -t 43200 || hold -f <(jq -r "$filter" "$data" | sort -u)); then
+        return 2
+    fi
+    cz -d $'\t' -e 'sensible-browser {1}' -f 2 -i "$menu"
 }
 
 cz_notmuch() {
@@ -2939,22 +2986,22 @@ EOF
     cz -f 0 -i <(lspci)
 }
 
-cz_perl_installed() {
+cz_perl_module() {
     { hep "$_CZ_HELP" && return; } <<EOF
-cz perl installed
+cz perl module
 Select an installed perl module.
 EOF
     req perl || return 5
-    cz -f 0 -i <(perl -MExtUtils::Installed  -E 'say for ExtUtils::Installed->new->modules')
+    cz -e 'perldoc {0}' -f 0 -i <(perl -MExtUtils::Installed  -E 'say for ExtUtils::Installed->new->modules')
 }
 
 cz_perl_doc() {
     { hep "$_CZ_HELP" && return; } <<EOF
-cz perl doc
-Select a perldoc page and open it for reading.
+cz perl module
+Select a perl internal document.
 EOF
-    req perldoc perldoc-search || return 5
-    cz -f 0 -e "perldoc {0}" -i <(perldoc-search . | perl -nE 'say $1 if /([\w:]+) - /')
+    req perl || return 5
+    cz -e 'perldoc {0}' -f 0 -i <(perldoc perl | sed -n '/-/d;/^[ ]*perl/{ s/^[ ]*//; p};')
 }
 
 cz_process() {
@@ -2981,7 +3028,7 @@ EOF
     cz -f 0 -e "pydoc {0}" < <(hold -ept 86400 -- pydoc -k .)
 }
 
-cz_python_installed() {
+cz_python_package() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz python installed
 Select an installed python package and show info about it.
@@ -3385,21 +3432,67 @@ EOF
     cz -d '' -f 0 -i <(perl -MUnicode::UCD=charscripts -E 'say for sort keys %{charscripts()}')
 }
 
+cz_unicode_symbol() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz unicode symbol
+Select a unicode character by name from symboloc blocks.
+EOF
+    req perl || return 5
+    local blocks=()
+    mapfile -t blocks <<EOF
+Alchemical Symbols
+Ancient Symbols
+Arrows
+Block Elements
+Box Drawing
+Chess Symbols
+Currency Symbols
+Dingbats
+Domino Tiles
+Emoticons
+Geometric Shapes
+Geometric Shapes Extended
+Ideographic Symbols and Punctuation
+Letterlike Symbols
+Mathematical Alphanumeric Symbols
+Miscellaneous Mathematical Symbols-A
+Miscellaneous Mathematical Symbols-B
+Miscellaneous Symbols
+Miscellaneous Symbols and Arrows
+Miscellaneous Symbols and Pictographs
+Miscellaneous Technical
+Musical Symbols
+Supplemental Symbols and Pictographs
+Symbols and Pictographs Extended-A
+Symbols for Legacy Computing
+Transport and Map Symbols
+EOF
+
+    cz -d ':' -e "printf \$'\U{1@C}'" -f 0 -i \
+       <(hold -gp -t 604800 || \
+              hold -fpx <(local block=""
+                          for block in "${blocks[@]}"; do
+                              insulate ^_CZ_ cz -o unicode character "$block"
+                          done))
+
+}
+
 cz_uri() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz uri [FILE] [< STREAM]
 Select a URI extracted from the input text.
+URIs are extracted with xurls or urifind.
 EOF
     local f=""
     if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
-    if type sensible-browser urifind &>/dev/null; then
+    if type urifind &>/dev/null; then
         cz -e 'sensible-browser {0}' < <(urifind -su < "$f")
-    elif type sensible-browser xurls &>/dev/null; then
+    elif type xurls &>/dev/null; then
         cz -e 'sensible-browser {0}' < <(xurls -r < "$f")
     else
-        req sensible-browser urifind xurls || return 5
+        req urifind xurls || return 5
     fi
 }
 
@@ -3415,7 +3508,6 @@ EOF
 cz_wal_theme() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz wal theme
-Select a color theme available from pywal.
 EOF
     req sed sort wal || return 5
     cz -f 0 -e 'wal -f {0}' -i <(wal --theme | sed '/^ - /!d;/^ - /s/ - //;' | sort -u)
