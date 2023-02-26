@@ -23,6 +23,6 @@ www/:
 	mkdir -p ./www
 
 gif:
-	gifcut -b1 "$$(capture -Wt20)" "window-$$(date +%s).gif"
+	gifcut -b1 "$$(capture -Wt20)" "www/img/window-$$(date +%s).gif"
 
 .PHONY: gif lint test unit www

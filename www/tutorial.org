@@ -6,7 +6,6 @@ A line selection tool is a program that reads lines on stdin then interactively 
 Some of these tools are graphical and others are intended for the terminal. Using cz the same command works in either situation.
 Additionally cz provides a framework for plugins. Each plugin defines a set of input lines and optional templates.
 
-
 * Setup
 #+begin_src bash
   # download the script
@@ -128,17 +127,17 @@ If available fd-find is used in place of find in the find plugins.
 *** Searching Files
 Searching for files containing a string is a critical part of modern software work.
 
-Get there faster than your cow-orkers with these keybindings and the cz grep plugin.
+Get there faster with these keybindings and the cz grep plugin.
 
-- *Control+x e* - select a match for the word at cursor point then replace that word with the selected file name.
-- *Control+x E* - select a match for the word at cursor point then open the file for editing at the selected line.
+- *Control+x e* - select a file matching the word at cursor point then replace that word with the selected file name.
+- *Control+x E* - select a file matching the word at cursor point then open the file for editing at the selected line.
 
 #+begin_src bash
   bind -x '"\C-xe":rleval -w cz -q grep {0}'
   bind -x '"\C-xE":rleval -r cz -r grep {0}'
 #+end_src
 
-Maybe you use ripgrep ("It's faster than grep!™")? If available it is used in place of vanilla grep in the grep plugin.
+Maybe you use ripgrep? If available it is used in place of vanilla grep in the grep plugin.
 
 *** Current Working Directory
 Leap up and down the +staircase+ directory tree with these keybindings:
@@ -178,7 +177,7 @@ Using cz you can directly insert any of these elements into the command buffer.
 Try `cz meta -q git` to select from all git related plugins.
 
 *** Unicode
-Damn there are just so many unicode characters huh? Arghhh!!! There's so many!
+Wow there are just so many unicode characters huh? There's so many!
 
 [[file:img/cz-example-unicode.gif][Cz unicode plugin example]]
 

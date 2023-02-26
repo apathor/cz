@@ -95,10 +95,10 @@ assert_equal "hold expires cached data based on time" \
 
 # insulate unit tests
 assert_equal "insulate removes environment vars" \
-             "$(FOO=1 insulate ^FOO$ echo ":\$FOO:")" "::"
+             "$(FOO=1 insulate ^FOO$ bash -c "echo \":\$FOO:\"")" "::"
 
 assert_equal "insulate takes patterns" \
-             "$(XAB=a XAC=b XBA=c insulate ^XA echo "\$XAB\$XAC\$XBA")" "c"
+             "$(XAB=b XAC=b XBA=c insulate ^XA bash -c "echo \"\$XAB\$XAC\$XBA\"")" "c"
 
 # summary
 if (( FAILS )); then

@@ -4,30 +4,31 @@
 * cz
 
 ** About
-Cz provides a common interface to interactive line selection tools.
+Cz is a bash script that provides a common interface to interactive line selection tools.
 
-Cz also acts as a framework for line selection based applications.
+What is an "interactive line selection tool"? It's a kind of program that reads text input then presents an interactive menu for the user to select one line.
 
-Included are over 200 plugins for common use cases. Out of the box you can select from:
+Some line selection tools run only in the terminal and others are graphical - cz uses a tool appropriate for the situation.
 
- - items from bash's built-in completion
- - files and directories
- - system processes
- - git branches
- - unicode characters
- - pass(1) passwords
- - man pages and other documentation sources
- - elements from JSON/YAML/XML documents
- - docker images
- - i3 window manager components
- - terraform resources
- - mpd tracks
+Cz also acts as a framework for pluggable line selection based applications. Included are over 250 plugins covering a variety of use cases. For example:
+
+- items from [[https://www.gnu.org/software/bash/manual/bash.html#Programmable-Completion-Builtins-1][bash's built-in completion]]
+- [[https://git-scm.com/][Git]] branches, commits, tags, etc.
+- [[https://home.unicode.org/][Unicode]] characters
+- [[https://www.passwordstore.org/][pass(1)]] passwords
+- elements from [[https://www.json.org/][JSON]]/[[http://yaml.org/][YAML]]/[[https://www.w3.org/XML/][XML]] documents
+- [[https://www.docker.com/][Docker]]
+- [[https://i3wm.org/][i3 window manager]] components
+- [[https://www.terraform.io/][Terraform]] elements
+- [[https://www.musicpd.org/][Mpd]] tracks and tags
+- [[https://systemd.io/][Systemd]] units
+- [[https://github.com/tmux/tmux][Tmux]] components
 
 And a whole lot more!
 
 ** Tools
 
-Cz supports the following line selection tools:
+The following line selection tools are supported:
  - [[https://github.com/chipsenkbeil/choose][choose]]
  - [[https://tools.suckless.org/dmenu][dmenu]]
  - [[https://github.com/junegunn/fzf][fzf]]
@@ -39,7 +40,7 @@ Cz supports the following line selection tools:
  - [[https://github.com/garybernhardt/selecta][selecta]]
  - [[https://github.com/rcmdnk/sentaku][sentaku]]
  - [[https://www.gnu.org/software/coreutils/manual/html_node/shuf-invocation.html][shuf]]
- - [[https://bitbucket.org/rafaelgg/slmenu][slmenu]] (defunct?)
+ - [[https://github.com/joshaw/slmenu][slmenu]]
  - [[https://github.com/martanne/vis][vis-menu]]
 
 Many thanks to the authors of the above tools!
@@ -106,7 +107,7 @@ PLUGINS
  All commands starting with 'cz_' are considered plugins.
 
 TEMPLATES
- Substrings of TEMPLATE in the following formats are replaced with
+ Sub-strings of TEMPLATE in the following formats are replaced with
   one or more fields from a selected line split by DELIMITER.
      {X}     - field X
      {X:}    - fields X through end of fields
@@ -134,72 +135,53 @@ To get the most out of cz users should consider binding shell and window manager
 
 Download this [example bash config](conf/cz.bashrc) then copy it into your bashrc file.
 
-The example config defines several key bindings that each insert text into the shell's edit buffer.
- - C-x x : select a plugin, run it, and insert fields from the selected line
- - C-x X : select a plugin, run it, and insert the selected line
- - C-x z : select a plugin, run it, and insert templated command output
- - C-x Z : select a plguin, run it, and insert templated command string
- - C-x r : Select and insert a command from history
- - C-x u : select and insert a unicode character
- - C-x g : select an uncomitted file in current git repo and insert its path
- - C-x G : select a comitted file in current git repo and insert its path
+The example config defines key bindings that run cz to provide interactive functionality.
 
-Bash users should source cz to load included function 'rleval'.
+Some of the key bindings use the included function `reval` to do one of the following:
+  - Insert output from cz into the bash command buffer at cursor point.
+  - Replace the word at cursor point in the bash command buffer with output from cz.
+  - Run cz to launch an interactive program (like $EDITOR) using some part of the selection.
 
-#+begin_src
-rleval [OPTIONS] COMMAND [ARGS ...]
-Evaluate command then...
- -i : insert its output into the readline buffer at cursor point.
- -w : replace the word at cursor point with its output.
- -r : run the command attached to the terminal.
+The example key bindings are as follows:
 
-The command string is templated using the current readline tokens.
-The word at cursor point is '{0}'. The first token in the command is '{1}' and so on.
-This function is intended to be used with the bash builtin 'bind -x'.
-
-EXAMPLES
- Insert the first token from the current readline buffer:
- $ bind -x '"\C-x0":rleval -i echo {1}'
-
- Insert fortunes on demand:
- $ bind -x '"\C-xf":rleval -i fortune"'
-
- Replace the current word with a generated password:
- $ bind -x '"\C-xp":rleval -w pwgen 20 1'
-
- Replace the current word with itself reversed:
- $ bind -x '"\C-xt":rleval -w "rev <<< {0}"'
-
- Encode and decode base64 strings at cursor point:
- $ bind -x '"\C-xb":rleval -w "base64 <<< {0}"'
- $ bind -x '"\C-xB":rleval -w "base64 -d <<< {0}"'
-
- Open the man page for the topic at cursor point:
- $ bind -x '"\C-xh":rleval -r man {0}'
-#+end_src
+  - C-x x : Select a cz plugin, run it in quote mode, and insert one or more fields from the selection.
+  - C-x X : Select a cz plugin, run it print mode, and insert the selection.
+  - C-x z : Select a cz plugin, run it in run mode, and insert the output of the command.
+  - C-x Z : Select a cz plguin, run it in simulate mode and insert the command templated with the selection.
+  - C-x r : Select a command from bash history and insert it.
+  - C-x u : Select a unicode character and insert it.
+  - C-x g : Select an uncomitted file in current git repository and insert its path.
+  - C-x G : Select a comitted file in current git repository and insert its path.
+  - C-x d : Using the current word as a directory, replace it with a selected descendant directory.
+  - C-x D : Using the current word as a pattern, replace it with a selected matching descendant directory under $PWD.
+  - C-x f : Using the current word as a directory, replace it with a selected descendant file.
+  - C-x F : Using the current word as a pattern, replace it with a selected matching descendant file under $PWD.
+  - C-x l : Using the current word as a pattern, replace it with a selected matching file from the locate database.
+  - C-x e : Using the current word as a pattern, replace it with the path of a file matching it under $PWD.
+  - C-x E : Using the current word as a pattern, run $EDITOR to open selected file matching it under $PWD.
 
 *** Zsh
 
-Download this [example zsh config](conf/cz.zshrc) then copy it into your zshrc file.
+Download the example zsh config then copy it into your zshrc file.
 
 The example config defines the same key bindings described in the bash section above.
 
 *** i3 Window Manager
 
-Download this [example i3 config](conf/cz-i3.conf) then copy it into your i3 config.
+Download the example i3 config then copy it into your i3 config.
 
 The example config defines the following key bindings:
 
- - Mod-x : select a plugin, run it, and put fields from selected line into a clipboard
- - Mod-X : select a plugin, run it, and put selected line into a clipboard
- - Mod-z : select a plugin, run it, and put command output into a clipboard
- - Mod-Z : select a plguin, run it, and put command string into a clipboard
- - Mod-c : select a command and run it
- - Mod-C : select a clipboard and pipe its contents through the selected command
- - Mod-o : select a clipboard then select from URLs extracted from its contents to open in a browser
- - Mod-Shift-Space : select an i3 a tag and jump to the selected window
- - Mod-Tab : select an i3 window and jump to it
- - Mod-Shift-Tab : select an i3 workspace and switch to it
+ - Mod-x : Select a cz plugin, run it, and put fields from selected line into a clipboard
+ - Mod-X : Select a cz plugin, run it, and put selected line into a clipboard
+ - Mod-z : Select a cz plugin, run it in , and put command output into a clipboard
+ - Mod-Z : Select a cz plguin, run it in simulate mode, and put the output into a clipboard
+ - Mod-c : Select a command and run it
+ - Mod-C : Select a clipboard and pipe its contents through the selected command
+ - Mod-o : Select a clipboard then select a URL extracted from its contents to open in a browser
+ - Mod-Shift-Space : Select an i3 a tag and jump to the selected window
+ - Mod-Tab : Select an i3 window and jump to it
+ - Mod-Shift-Tab : Select an i3 workspace and switch to it
 
 ** Plugins
 
