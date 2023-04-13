@@ -8,7 +8,7 @@ if ! TEST_DIR="$(mktemp -d /tmp/cztest-XXX)"; then
 fi
 
 # include cz
-if ! . cz; then
+if ! . ./cz; then
     printf "Could not source cz\n"
     exit 1
 fi

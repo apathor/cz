@@ -12,9 +12,11 @@ select one line.
 Some line selection tools run only in the terminal and others are
 graphical - cz uses a tool appropriate for the situation.
 
-Cz also acts as a framework for pluggable line selection based
-applications. Included are over 250 plugins covering a variety of use
-cases. For example:
+Cz implements a plugin system. Each plugin defines a set of lines which
+to select and templates to use the selection.
+
+Included are over 250 plugins covering a variety of use cases. For
+example with some of the included plugins you can select from:
 
   - items from [bash's built-in
     completion](https://www.gnu.org/software/bash/manual/bash.html#Programmable-Completion-Builtins-1)
@@ -30,8 +32,6 @@ cases. For example:
   - [Mpd](https://www.musicpd.org/) tracks and tags
   - [Systemd](https://systemd.io/) units
   - [Tmux](https://github.com/tmux/tmux) components
-
-And a whole lot more\!
 
 ## Tools
 
@@ -204,37 +204,38 @@ Download the example i3 config then copy it into your i3 config.
 The example config defines the following key bindings:
 
   - Mod-x : Select a cz plugin, run it, and put fields from selected
-    line into a clipboard
+    line into a clipboard.
   - Mod-X : Select a cz plugin, run it, and put selected line into a
-    clipboard
-  - Mod-z : Select a cz plugin, run it in , and put command output into
-    a clipboard
+    clipboard.
+  - Mod-z : Select a cz plugin, run it, and put the command output into
+    a clipboard.
   - Mod-Z : Select a cz plguin, run it in simulate mode, and put the
-    output into a clipboard
-  - Mod-c : Select a command and run it
+    output into a clipboard.
+  - Mod-c : Select a command and run it.
   - Mod-C : Select a clipboard and pipe its contents through the
-    selected command
+    selected command.
   - Mod-o : Select a clipboard then select a URL extracted from its
-    contents to open in a browser
-  - Mod-Shift-Space : Select an i3 a tag and jump to the selected window
-  - Mod-Tab : Select an i3 window and jump to it
-  - Mod-Shift-Tab : Select an i3 workspace and switch to it
+    contents to open in a browser.
+  - Mod-Shift-Space : Select an i3 a tag and jump to the selected
+    window.
+  - Mod-Tab : Select an i3 window and jump to it.
+  - Mod-Shift-Tab : Select an i3 workspace and switch to it.
 
 ## Plugins
 
 Cz considers any command starting with 'cz\_' a valid plugin.
 
-Plugins should:
+Plugins must:
 
-  - print usage text if the CZ\_HELP environment variable is non-empty
-  - provide some application specific input to cz
-  - run cz with application specific options (-d, -e, -f, -i)
-  - run cz without setting one of the mode options (-p, -q, -r, -s, -t,
-    -u)
+  - Print usage text if the CZ\_HELP environment variable is non-empty.
+  - Provide some application specific input to cz.
+  - Run cz with application specific options (-d, -e, -f, -i) but
+    without setting any of the mode options (-p, -q, -r, -s, -t, -u).
 
 ### Example - bash function
 
-A function like the following can be defined in your bash configuration:
+A function like the following could be defined in your bash
+configuration:
 
 ``` bash
 cz_fruit() {
@@ -250,8 +251,10 @@ cz_fruit() {
 
 ### Example - external program
 
-Use your favorite language\! Put the following in a file called
-'cz\_twos' on your path:
+Use your favorite language\! Here is an example plugin that lets you
+select from powers of two.
+
+Put the following in an executable file called 'cz\_twos' on your path:
 
 ``` perl
 #!/usr/bin/env perl

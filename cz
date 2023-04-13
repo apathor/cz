@@ -8,8 +8,6 @@
 #  - AWS/s3 plugins
 #  - I8n?
 #  - Better built-in line selector
-#
-# shellcheck disable=SC2030,SC2031
 
 if (("${BASH_VERSINFO[0]}" < 4)); then
     printf "%s\n" "$0 requires bash 4!" >&2
@@ -321,7 +319,7 @@ EOF
             fi
         done < <(compgen -v)
         # run the given command in this modified environment
-        eval "${@@Q}"
+        eval "${*@Q}"
     )
 }
 
@@ -448,7 +446,7 @@ EOF
                     fi
                     fmt=""
                     # add selected fields to output
-                    out+="${more%${more##*[![:space:]]}}"
+                    out+="${more%"${more##*[![:space:]]}"}"
                     ;;
                 '@') # field transformation string
                     case "$next" in
@@ -480,7 +478,7 @@ EOF
     fi
     # strip leading and trailing whitespace
     out="${out##*()}"
-    out="${out%${out##*[![:space:]]}}"
+    out="${out%"${out##*[![:space:]]}"}"
     # write out the resulting string
     printf "%s\n" "${out}"
 }
@@ -664,7 +662,7 @@ EOF
 
 cz() {
     # version
-    local ver="0.8.2"
+    local ver="0.8.3"
     # usage
     local hows="" use=""
     read -r -d '' use <<EOF
@@ -1137,7 +1135,7 @@ function _cz() {
         # have options ended?
         if [[ "$word" =~ ^-[[:alnum:]]$ ]]; then
             # record options already seen
-            unset opts["$word"]
+            unset "opts[$word]"
         elif [[ "$word" =~ ^[[:alnum:]]+ ]]; then
             # maybe this is an argument to an option
             if [[ "$last" =~ ^-[defiz]$ ]]; then continue; fi
@@ -1345,7 +1343,7 @@ EOF
 }
 
 cz_apt_installed() {
-        { hep "$_CZ_HELP" && return; } <<EOF
+    { hep "$_CZ_HELP" && return; } <<EOF
 cz apt installed
 Select from installed apt packages.
 EOF
@@ -1353,6 +1351,38 @@ EOF
     local qry="${*:-.}"
     cz -f 0 -e 'apt-cache show {0}' \
        -i <(dpkg --get-selections | awk '$2 == "install" { print $1 }')
+}
+
+cz_asdf_plugin() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz asdf plugin
+Select from available asdf plugins.
+EOF
+    req asdf || return 5
+    cz -f 0 -e 'asdf plugin add {0} {1}' \
+       -i <(hold -ept 3600 -- asdf plugin list all 2>/dev/null)
+}
+
+cz_asdf_mine() {
+        { hep "$_CZ_HELP" && return; } <<EOF
+cz asdf mine
+Select from installed asdf plugins.
+EOF
+    req asdf || return 5
+    cz -f 0 -e 'asdf plugin update {0}' \
+       -i <(asdf plugin list)
+}
+
+cz_asdf_version() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz asdf version PLUGIN
+Select from available versions of the given asdf plugin.
+EOF
+    req asdf || return 5
+    local plugin="${1:-$(insulate ^_CZ_ cz -u asdf mine)}"
+    if [ -z "$plugin" ]; then return 2; fi
+    cz -f 0 -e "asdf install ${plugin@Q} {0}" \
+       -i <(printf "%s\n" latest; asdf list all "$plugin";)
 }
 
 cz_bash_alias() {
@@ -2934,7 +2964,7 @@ EOF
 cz_mtg_set() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz mtg set
-Select an MTG set by name using data from scryfall.com.
+Select an M:tG set by name using data from scryfall.com.
 EOF
     req curl sort || return 5
     local url=""
@@ -2948,7 +2978,7 @@ EOF
 cz_mtg_card() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz mtg card
-Select an MTG card by name using data from scryfall.com.
+Select an MtG card by name using data from scryfall.com.
 EOF
     req curl sort || return 5
     local url=""
@@ -3031,12 +3061,25 @@ EOF
     cz -f 1 -i <(getent services)
 }
 
+cz_rfc() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz rfc
+Select an internet RFC and open it for reading.
+EOF
+    read -r -d '' filter <<EOF
+BEGIN { my (\$x, \$n); };
+if (/^[[:digit:]].*/) { \$n++; say \$x if \$x; \$x = join " ", @F[0..\$#F]; } else { if (\$n) { s/^\s+//; \$x .= \$_ }; };
+END { say \$x if \$x; };
+EOF
+    cz -e 'xdg-open https://www.rfc-editor.org/rfc/rfc{0@C}.txt' -f 0 \
+       -i <(hold -ep curl -sS https://www.rfc-editor.org/rfc-index.txt | perl -lanE "$filter")
+}
+
 cz_ruby_gem() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz ruby gem
 Select an installed ruby gem package by name.
 EOF
-
     req gem ruby || return 5
     cz -f 0 -e 'gem info {0}' -i <(gem query --local)
 }
@@ -3432,8 +3475,8 @@ EOF
         cz -f 0 -e 'TZ={0} date' \
            -i <(timedatectl list-timezones)
     elif req date "$p" sort 2>/dev/null; then
-        cz -f 0 -e 'TZ={0} date' \
-           -i <(for x in "$p"/*/*; do printf "%s\n" "${x##$p/}"; done | sort)
+        cz -f 0 -e 'TZ={0} fate' \
+           -i <(for x in "$p"/*/*; do printf "%s\n" "${x##"$p"/}"; done | sort)
     else
         req systemd "$p"
     fi
