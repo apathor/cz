@@ -10,7 +10,7 @@ What is an "interactive line selection tool"? It's a kind of program that reads 
 
 Some line selection tools run only in the terminal and others are graphical - cz uses a tool appropriate for the situation.
 
-Cz implements a plugin system. Each plugin defines a set of lines  which to select and templates to use the selection.  
+Cz implements a plugin system. Each plugin defines a set of lines  which to select and templates to use the selection.
 
 Included are over 250 plugins covering a variety of use cases. For example with some of the included plugins you can select from:
 
@@ -42,6 +42,7 @@ The following line selection tools are supported:
  - [[https://www.gnu.org/software/coreutils/manual/html_node/shuf-invocation.html][shuf]]
  - [[https://github.com/joshaw/slmenu][slmenu]]
  - [[https://github.com/martanne/vis][vis-menu]]
+ - [[https://wiki.gnome.org/Projects/Zenity][zenity]]
 
 Many thanks to the authors of the above tools!
 
@@ -98,7 +99,7 @@ OPTIONS
 TOOLS
  The following interactive line selection tools are supported:
   choose, dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta, sentaku,
-  slmenu, and vis-menu.
+  slmenu, vis-menu, and zenity.
 
 PLUGINS
  Plugins use cz for an application specific task. Each plugin defines input
@@ -133,7 +134,7 @@ To get the most out of cz users should consider binding shell and window manager
 
 *** Bash
 
-Download this [example bash config](conf/cz.bashrc) then copy it into your bashrc file.
+Download this [[file:conf/cz.bashrc][example bash config]] then copy it into your bashrc file.
 
 The example config defines key bindings that run cz to provide interactive functionality.
 

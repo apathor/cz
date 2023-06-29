@@ -51,6 +51,7 @@ The following line selection tools are
   - [shuf](https://www.gnu.org/software/coreutils/manual/html_node/shuf-invocation.html)
   - [slmenu](https://github.com/joshaw/slmenu)
   - [vis-menu](https://github.com/martanne/vis)
+  - [zenity](https://wiki.gnome.org/Projects/Zenity)
 
 Many thanks to the authors of the above tools\!
 
@@ -108,7 +109,7 @@ bash\`.
     TOOLS
      The following interactive line selection tools are supported:
       choose, dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta, sentaku,
-      slmenu, and vis-menu.
+      slmenu, vis-menu, and zenity.
     
     PLUGINS
      Plugins use cz for an application specific task. Each plugin defines input
@@ -144,7 +145,7 @@ manager keys.
 
 ### Bash
 
-Download this \[example bash config\](conf/cz.bashrc) then copy it into
+Download this [example bash config](conf/cz.bashrc) then copy it into
 your bashrc file.
 
 The example config defines key bindings that run cz to provide
