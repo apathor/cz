@@ -7,13 +7,12 @@ selection tools.
 
 What is an "interactive line selection tool"? It's a kind of program
 that reads text input then presents an interactive menu for the user to
-select one line.
+select one line. Some line selection tools run only in the terminal and
+others are graphical - cz uses a tool appropriate for the situation.
 
-Some line selection tools run only in the terminal and others are
-graphical - cz uses a tool appropriate for the situation.
-
-Cz implements a plugin system. Each plugin defines a set of lines which
-to select and templates to use the selection.
+Cz implements a plugin system. Each plugin defines lines from which to
+select, an output template, and a command template. Creating new plugins
+is quick and painless in any programming language.
 
 Included are over 250 plugins covering a variety of use cases. For
 example with some of the included plugins you can select from:
