@@ -25,4 +25,7 @@ www/:
 gif:
 	gifcut -b1 "$$(capture -Wt20)" "www/img/window-$$(date +%s).gif"
 
-.PHONY: gif lint test unit www
+push:
+	git push github
+
+.PHONY: gif lint push test unit www

@@ -516,6 +516,28 @@ EOF
     ! ((mis))
 }
 
+randline() {
+    read -r -d '' use <<EOF
+randline [OPTIONS]
+Select a line at random from input and print it.
+EOF
+    # no options just help
+    local opt OPTIND OPTARG
+    while getopts ":h" opt; do
+        case "$opt" in
+            *)
+                printf "%s\\n" "$use" >&2
+                return 1
+                ;;
+        esac
+    done
+    # read all lines then print one random line
+    local lines=()
+    mapfile -t lines
+    local pick=$(( RANDOM % ${#lines[@]} ))
+    printf "%s\\n" "${lines[$pick]}";
+}
+
 rleval() {
     read -r -d '' use <<EOF
 rleval [OPTIONS] COMMAND [ARGS ...]
@@ -661,7 +683,7 @@ EOF
 
 cz() {
     # version
-    local ver="0.8.5"
+    local ver="0.8.6"
     # usage
     local hows="" use=""
     read -r -d '' use <<EOF
@@ -696,7 +718,8 @@ OPTIONS
   -0            : Read null terminated lines from input.
   -i IN-FILE    : Set file from which to read selections instead of stdin.
 
- These options control which line selection utility is used:
+ These options control how lines are selected:
+  -w            : Pick a line at random.
   -x            : Use a graphical line selection tool.
   -y            : Use a terminal line selection tool.
   -z TOOL       : Use the given line selection tool.
@@ -743,8 +766,9 @@ Pick from lines on stdin.:$ printf "%s\\n" foo bar qux | cz
 Accept null delimited input lines.:$ find . -name '*.yml' -print0 | cz -0
 Extract useful fields from selected line.:$ cz -q -f 0,5 -d : < /etc/passwd
 Safely handle input strings containing shell characters.:$ cz -e 'echo -- {0:}' -i <(printf "%s\\n" '\$USER' '; false' '\$(fortune)' '-e')
+Pick a line randomly instead of using interactive selecting.:# printf "%s\\n" {A..Z} | cz -w
 Add selection to common commands.:$ cz -r -e 'dig {0} AAAA +short' compgen hostname
-Easily define plugins as bash functions.:$ cz_whois() { cz -e 'whois {0}' -f 0 compgen hostname; }; cz whois
+Extend plugins with bash functions.:$ cz_whois() { cz -e 'whois {0}' -f 0 compgen hostname; }; cz whois
 Select a password and put it on an xclip clipboard.:$ cz pass | cz xclip in
 Jump to any descendant directory.:$ cd \$(cz descendant)
 Jump to any ancestor directory.:$ cd \$(cz ancestor)
@@ -752,7 +776,7 @@ Grab a URL from a paste buffer and open it in a browser.:$ cz xclip out | cz -e 
 Compose plugins to get the contents of any element from any JSON file.:$ cz -e 'cz jq {0}' locate *.json
 Compose plugins to get any file under an apparix bookmarked directory.:$ cz -e 'cz find file {1}' apparix
 Find a file then open it for editing:$ find . -type f -print0 | cz -0 -r -e 'vim {0}'
-Consult the I Ching.:cz -z shuf -uf0,2 unicode character 'Yijing Hexagram Symbols' | sed 's/HEXAGRAM FOR//'
+Consult the I Ching.:cz -u -f0,2 -w unicode character 'Yijing Hexagram Symbols' | sed 's/HEXAGRAM FOR//'
 EOF
     # supported tools
     read -r -d '' exes <<EOF
@@ -784,21 +808,21 @@ EOF
     IFS=: read -r gfx app _ <<< "${CZ_GUI:-2}"
     if [ -z "$DISPLAY" ]; then gfx=0; fi
     # set options from the environment
-    local tpl="${_CZ_TEMPLATE}"    # string | command template
-    local fld="${_CZ_FIELDS}"      # string | field selection
-    local mode="${_CZ_MODE}"       # string | indicator for program mode
-    local help="${_CZ_HELP}"       # string | indicator for help requested
-    local dlm="${_CZ_DELIM:-$IFS}" # string | delimeter to split selected line
-    local dbg="${_CZ_DEBUG}"       # boolean | whether or not write debug info
+    local tpl="${_CZ_TEMPLATE}"         # string  | command template
+    local fld="${_CZ_FIELDS}"           # string  | field selection
+    local mode="${_CZ_MODE}"            # string  | indicator for program mode
+    local help="${_CZ_HELP}"            # string  | indicator for help requested
+    local dlm="${_CZ_DELIM:-$IFS}"      # string  | delimeter to split selected line
+    local dbg="${CZ_DEBUG:-$_CZ_DEBUG}" # boolean | whether or not write debug info
     # set option defaults
-    local inp="/dev/stdin"         # string  | file from which to select a line
-    local buf=0                    # boolean | require buffered stdin for command
-    local run=""                   # string  | program mode implied by another option
-    local nul=0                    # boolean | whether to read null separated lines
-    local clr=0                    # boolean | whether to refresh cached input lines
+    local inp="/dev/stdin"              # string  | file from which to select a line
+    local buf=0                         # boolean | require buffered stdin for command
+    local run=""                        # string  | program mode implied by another option
+    local nul=0                         # boolean | whether to read null separated lines
+    local clr=0                         # boolean | whether to refresh cached input lines
     # accept options
     local opt OPTIND OPTARG
-    while getopts ":cd:e:f:ghHi:klmopqrstuvxyz:0" opt; do
+    while getopts ":cd:e:f:ghHi:klmopqrstuvwxyz:0" opt; do
         case "$opt" in
             c) # clear hold caches
                 clr=1
@@ -859,7 +883,7 @@ EOF
             q) # print rendered template from '-f' with variables shell-quoted
                 mode=1
                 ;;
-            r) # execute rendered template from '-e'
+            r) # run rendered command template from '-e'
                 mode=2
                 ;;
             s) # print string from '-e' as command
@@ -871,12 +895,12 @@ EOF
             u) # print rendered template from '-f' with variables inserted directly
                 mode=5
                 ;;
-            0) # handle null separated input
-                nul=1
-                ;;
             v) # write version
                 printf "cz %s\\n" "$ver"
                 return 0
+                ;;
+            w) # select a random line instead of using an external tool
+                app="randline"
                 ;;
             x) # try to use a graphical tool for line selection
                 gfx=1
@@ -890,6 +914,9 @@ EOF
                     printf "Unknown line selection tool '%s'\\n" "$app" >&2
                     return 2
                 fi
+                ;;
+            0) # handle null separated input
+                nul=1
                 ;;
             \?) # invalid option?
                 printf "Bad option: -%s\\n%s\\n" "$OPTARG" "$use" >&2
@@ -967,6 +994,7 @@ EOF
     fi
     # read the selection file
     local items=() lines=()
+    if ((dbg)); then printf "READ %(%H:%M:%S)T\\n" -1 >&2; fi
     if ((nul)); then
         mapfile -d '' -t lines < "$inp"
         mapfile -t items < <(printf "%q\\n" "${lines[@]}")
@@ -981,8 +1009,9 @@ EOF
     fi
     # buffer stdin if reading selection input from another file
     # this is needed to pass pipe input to plugin commands
-    declare -a stdin
+    local stdin=()
     if [[ "$inp" != "/dev/stdin" ]] && ! [ -t 0 ]; then
+        if ((dbg)); then printf "IBUF %(%H:%M:%S)T\\n" -1 >&2; fi
         mapfile -t stdin
         # optionally require actual input lines
         if ((buf)) && ! ((${#stdin})); then return 4; fi
@@ -993,7 +1022,8 @@ EOF
         return 0
     fi
     # choose a line using a known program
-    local out
+    local out=""
+    if ((dbg)); then printf "PICK %(%H:%M:%S)T\\n" -1 >&2; fi
     out=$(case "$app" in
               choose)
                   choose -n 20
@@ -1015,6 +1045,9 @@ EOF
                   ;;
               pick)
                   pick
+                  ;;
+              randline)
+                  randline
                   ;;
               rofi)
                   local theme="${CZ_ROFI_THEME:-Paper}"
@@ -1125,7 +1158,7 @@ EOF
                 return 4
             fi
             if ((dbg)); then
-                printf "# %s ==> %s\\n" "$fld" "$out" >&2
+                printf "# %s ==> %s\\n" "$fld" "$cmd" >&2
             fi
             printf "%s\\n" "$cmd"
             ;;
@@ -1135,7 +1168,7 @@ EOF
                 return 4
             fi
             if ((dbg)); then
-                printf "# %s ==> %s\\n" "$fld" "$out" >&2
+                printf "# %s ==> %s\\n" "$fld" "$cmd" >&2
             fi
             printf "%s\\n" "$cmd"
             ;;
@@ -1152,7 +1185,7 @@ function _cz() {
     # cz has some options
     local opt="" opts
     declare -A opts
-    for opt in -{d,e,f,h,i,l,k,m,o,p,q,r,s,t,u,v,x,y,z,0}; do opts["$opt"]=0; done
+    for opt in -{d,e,f,h,i,l,k,m,o,p,q,r,s,t,u,v,w,x,y,z,0}; do opts["$opt"]=0; done
     # scan all previous words
     local base="" last="" word="" i=0
     for ((i=1; i < "$COMP_CWORD"; i++)); do
@@ -1212,7 +1245,7 @@ function _cz() {
         COMPREPLY=("${reply[@]}")
         return
     fi
-    # TODO maybe complete something specific for a plugin
+    # TODO maybe complete something specific for plugins
     case "$base" in
         *) return ;;
     esac
@@ -2599,7 +2632,7 @@ EOF
         printf "Either grep or rg is required!\\n" >&2
         return 5
     fi
-    cz -d ':' -f 0  -e "$EDITOR +{1} -- {0}" \
+    cz -d ':' -f "0,1"  -e "$EDITOR +{1} -- {0}" \
        -i <(printf "%s\\n" "$matches")
 }
 
@@ -3079,7 +3112,7 @@ EOF
                     | jq -r '.data[] | [.released_at, .code, .name ] | @tsv'); then
         return 2
     fi
-    cz -d $'\t' -f 1 -i <(sort -u <<< "${sets[@]}")
+    cz -d $'\t' -e 'xdg-open https://scryfall.com/sets/{1}' -f 1 -i <(sort -u <<< "${sets[@]}")
 }
 
 cz_mtg_card() {
@@ -3089,16 +3122,16 @@ Select an MTG card by name using data from scryfall.com.
 EOF
     req curl sort || return 5
     local url=""
-    if ! url=$(hold -pe -n scryfallbulk -t 86400 -- curl -sS https://api.scryfall.com/bulk-data \
+    if ! url=$(hold -pe -n scryfallbulk -t 604800 -- curl -sS https://api.scryfall.com/bulk-data \
                    | jq -r '.data[] | select(.type == "oracle_cards") | .download_uri'); then
         return 2
     fi
     local data="" menu=""
-    if ! data=$(hold -e -n scryfalldata -t $((86400 * 7)) curl -sS "$url"); then
+    if ! data=$(hold -e -n scryfalldata -t 604800 -- curl -sS "$url"); then
         return 2
     fi
     local filter='.[] | [.set, (.scryfall_uri | split("?"))[0], .name] | @tsv'
-    if ! menu=$(hold -g -t 43200 || hold -f <(jq -r "$filter" "$data" | sort -u)); then
+    if ! menu=$(hold -g -t 3600 || hold -f <(jq -r "$filter" "$data" | sort -u)); then
         return 2
     fi
     cz -d $'\t' -e 'xdg-open {1}' -f 2 -i "$menu"
@@ -3453,7 +3486,6 @@ EOF
 done
 unset t c
 
-
 cz_systemd_file() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz systemd file [user|system] [TYPE]
@@ -3672,7 +3704,7 @@ EOF
 use strict;
 use warnings;
 use open ":std", ":encoding(UTF-8)";
-use Unicode::UCD qw/charinfo charscript charscripts  charblock charblocks/;
+use Unicode::UCD qw/charinfo charscript charscripts charblock charblocks/;
 my (\$blocks,\$scripts) = (charblocks(),charscripts());
 for (@ARGV) {
     my \$section = \$blocks->{\$_} || \$scripts->{\$_};

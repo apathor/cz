@@ -62,7 +62,7 @@ cz [OPTIONS] [PLUGIN...] [ARGS ...] [< LINES]
 Select a line using your preferred interactive line selection tool.
 
 OPTIONS
- These options print some information and exit:
+ These options print some information then exit:
   -h : help     : Show this help text or help text for plugin.
   -H : example  : List example commands.
   -k : tools    : List supported line selection tools.
@@ -89,10 +89,14 @@ OPTIONS
   -0            : Read null terminated lines from input.
   -i IN-FILE    : Set file from which to read selections instead of stdin.
 
- These options control which line selection utility is used:
+ These options control how lines are selected:
+  -w            : Pick a line at random.
   -x            : Use a graphical line selection tool.
   -y            : Use a terminal line selection tool.
   -z TOOL       : Use the given line selection tool.
+
+ These options control debugging features:
+  -m            : Print some debygging information.
 
 TOOLS
  The following interactive line selection tools are supported:
@@ -101,7 +105,7 @@ TOOLS
 
 PLUGINS
  Plugins use cz for an application specific task. Each plugin defines input
-  lines and options like the delimiter and templates.
+  lines, delimiter, and template options.
  Run 'cz -l' to list plugins and 'cz -h PLUGIN' or 'cz help' for help text.
  All commands starting with 'cz_' are considered plugins.
 
