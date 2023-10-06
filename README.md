@@ -14,7 +14,7 @@ Cz implements a plugin system. Each plugin defines lines from which to
 select, an output template, and a command template. Creating new plugins
 is quick and painless in any programming language.
 
-Included are over 250 plugins covering a variety of use cases. For
+Included are almost 300 plugins covering a variety of use cases. For
 example with some of the included plugins you can select from:
 
   - items from [bash's built-in
@@ -25,12 +25,13 @@ example with some of the included plugins you can select from:
   - elements from
     [JSON](https://www.json.org/)/[YAML](http://yaml.org/)/[XML](https://www.w3.org/XML/)
     documents
-  - [Docker](https://www.docker.com/)
+  - [Docker](https://www.docker.com/) components
   - [i3 window manager](https://i3wm.org/) components
   - [Terraform](https://www.terraform.io/) elements
   - [Mpd](https://www.musicpd.org/) tracks and tags
   - [Systemd](https://systemd.io/) units
   - [Tmux](https://github.com/tmux/tmux) components
+  - Internet [RFCs](https://www.rfc-editor.org/)
 
 ## Tools
 
@@ -41,6 +42,7 @@ The following line selection tools are
   - [dmenu](https://tools.suckless.org/dmenu)
   - [fzf](https://github.com/junegunn/fzf)
   - [fzy](https://github.com/jhawthorn/fzy)
+  - [gum](https://github.com/charmbracelet/gum)
   - [iselect](http://www.ossp.org/pkg/tool/iselect)
   - [pick](https://github.com/mptre/pick)
   - [pipedial](https://code.reversed.top/user/xaizek/pipedial)
@@ -73,7 +75,7 @@ bash\`.
     Select a line using your preferred interactive line selection tool.
     
     OPTIONS
-     These options print some information and exit:
+     These options print some information then exit:
       -h : help     : Show this help text or help text for plugin.
       -H : example  : List example commands.
       -k : tools    : List supported line selection tools.
@@ -100,19 +102,23 @@ bash\`.
       -0            : Read null terminated lines from input.
       -i IN-FILE    : Set file from which to read selections instead of stdin.
     
-     These options control which line selection utility is used:
+     These options control how lines are selected:
+      -w            : Pick a line at random.
       -x            : Use a graphical line selection tool.
       -y            : Use a terminal line selection tool.
       -z TOOL       : Use the given line selection tool.
     
+     These options control debugging features:
+      -m            : Print some debygging information.
+    
     TOOLS
      The following interactive line selection tools are supported:
-      choose, dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta, sentaku,
-      slmenu, vis-menu, and zenity.
+      choose, dmenu, fzf, fzy, gum, iselect, pick, pipedial, rofi, selecta,
+      sentaku, slmenu, vis-menu, and zenity.
     
     PLUGINS
      Plugins use cz for an application specific task. Each plugin defines input
-      lines and options like the delimiter and templates.
+      lines, delimiter, and template options.
      Run 'cz -l' to list plugins and 'cz -h PLUGIN' or 'cz help' for help text.
      All commands starting with 'cz_' are considered plugins.
     

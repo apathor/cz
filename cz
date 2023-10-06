@@ -683,7 +683,7 @@ EOF
 
 cz() {
     # version
-    local ver="0.8.6"
+    local ver="0.8.7"
     # usage
     local hows="" use=""
     read -r -d '' use <<EOF
@@ -729,8 +729,8 @@ OPTIONS
 
 TOOLS
  The following interactive line selection tools are supported:
-  choose, dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta, sentaku,
-  slmenu, vis-menu, and zenity.
+  choose, dmenu, fzf, fzy, gum, iselect, pick, pipedial, rofi, selecta,
+  sentaku, slmenu, vis-menu, and zenity.
 
 PLUGINS
  Plugins use cz for an application specific task. Each plugin defines input
@@ -766,7 +766,7 @@ Pick from lines on stdin.:$ printf "%s\\n" foo bar qux | cz
 Accept null delimited input lines.:$ find . -name '*.yml' -print0 | cz -0
 Extract useful fields from selected line.:$ cz -q -f 0,5 -d : < /etc/passwd
 Safely handle input strings containing shell characters.:$ cz -e 'echo -- {0:}' -i <(printf "%s\\n" '\$USER' '; false' '\$(fortune)' '-e')
-Pick a line randomly instead of using interactive selecting.:# printf "%s\\n" {A..Z} | cz -w
+Pick a line randomly instead of interactively.:# printf "%s\\n" {A..Z} | cz -w
 Add selection to common commands.:$ cz -r -e 'dig {0} AAAA +short' compgen hostname
 Extend plugins with bash functions.:$ cz_whois() { cz -e 'whois {0}' -f 0 compgen hostname; }; cz whois
 Select a password and put it on an xclip clipboard.:$ cz pass | cz xclip in
@@ -784,6 +784,7 @@ choose    https://github.com/chipsenkbeil/choose
 dmenu     https://tools.suckless.org/dmenu
 fzf       https://github.com/junegunn/fzf
 fzy       https://github.com/jhawthorn/fzy
+gum       https://github.com/charmbracelet/gum
 iselect   http://www.ossp.org/pkg/tool/iselect
 pick      https://github.com/mptre/pick
 pipedial  https://code.reversed.top/user/xaizek/pipedial
@@ -802,7 +803,7 @@ EOF
     # here are the supporterd line selection tools
     declare -A gbins tbins
     while read -r -d ' ' x; do gbins["$x"]=1; done <<< "choose dmenu rofi "
-    while read -r -d ' ' x; do tbins["$x"]=1; done <<< "fzf fzy pick pipedial selecta sentaku shuf sk iselect slmenu vis-menu zenity "
+    while read -r -d ' ' x; do tbins["$x"]=1; done <<< "fzf fzy pick gum pipedial selecta sentaku shuf sk iselect slmenu vis-menu zenity "
     # determine type of interface for line selection tool
     local app="" gfx=""
     IFS=: read -r gfx app _ <<< "${CZ_GUI:-2}"
@@ -1040,6 +1041,9 @@ EOF
               fzy)
                   fzy
                   ;;
+              gum)
+                  gum filter
+                  ;;
               iselect)
                   iselect -a
                   ;;
@@ -1251,6 +1255,14 @@ function _cz() {
     esac
 }
 complete -F _cz cz
+
+cz_tool() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz tool
+Select a cz supported line selection tool then run a plugin with that tool.
+EOF
+    cz -e "cz -z {0} meta -- $*" -f 0 -i <(cz -k)
+}
 
 cz_meta() {
     { hep "$_CZ_HELP" && return; } <<EOF
@@ -1601,7 +1613,7 @@ EOF
     read -r filter <<EOF
 .elements[] | [.number, .period, .name, .symbol, .source] | @tsv
 EOF
-    cz -f 2 -i <(hold -ept 604800 curl -sS "$url" | jq -r "$filter")
+    cz -f 2 -i <(hold -ep -- curl -sS "$url" | jq -r "$filter")
 }
 
 colorblock() {
@@ -2386,7 +2398,7 @@ cz gcloud sd namespace [PROJECT] [REGION]
 Select a Google cloud service directory namespace.
 EOF
     local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
-    local region="${1:-$(insulate ^_CZ_ cz -u gcloud compute region)}"
+    local region="${2:-$(insulate ^_CZ_ cz -u gcloud compute region)}"
     cz -f 0 -i <(gcloud service-directory namespaces list --project="$proj" --format=json --location="$region" \
                      | jq -r '.[].name')
 }
@@ -2439,6 +2451,15 @@ EOF
     req gh awk || return 5
     cz -e 'gh pr view {1}' -f 2 \
        -i <(gh pr list --limit 100 | awk -F $'\t' '{ print $4, $1, $3, $2 }' )
+}
+
+cz_gh_release() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz gh release
+Select a Github release and view it.
+EOF
+    req gh || return 5
+    cz -e 'gh release view {0}' -f 1 -i <(gh release list)
 }
 
 cz_git() {
@@ -3207,7 +3228,8 @@ Select an internet RFC and open it for reading.
 EOF
     read -r -d '' filter <<EOF
 BEGIN { my (\$x, \$n); };
-if (/^[[:digit:]].*/) { \$n++; say \$x if \$x; \$x = join " ", @F[0..\$#F]; } else { if (\$n) { s/^\\s+//; \$x .= \$_ }; };
+if (/^[[:digit:]].*/) { \$n++; say \$x if \$x; \$F[0] =~ s/^0+//; \$x = join " ", @F[0..\$#F]; }
+else { if (\$n) { s/^\\s+//; \$x .= \$_ }; };
 END { say \$x if \$x; };
 EOF
     cz -e 'xdg-open https://www.rfc-editor.org/rfc/rfc{0@C}.txt' -f 0 \
@@ -3229,7 +3251,7 @@ cz pandoc [FILE]
 Select a pandoc output format then convert the given file into that format.
 If the file argument is omitted input is read from stdin.
 EOF
-    req pandoc head || return 5
+    req pandoc || return 5
     local f=""
     if ! f=$(hold -fx "${1:--}"); then
         return 4
@@ -3242,9 +3264,9 @@ cz_pass() {
 cz pass
 Select an entry from a pass directory and print its contents.
 EOF
-    req pass find sed head || return 5
+    req pass find sed || return 5
     local pdir="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
-    cz -f 0 -e 'pass show {0} | head -n1' \
+    cz -f 0 -e 'pass show {0} | sed -n 1p' \
        -i <(find "$pdir" -type f -name '*.gpg' | sed "s#\\.gpg##; s#$pdir##")
 }
 
@@ -3365,16 +3387,32 @@ cz python installed
 Select an installed python package and show info about it.
 EOF
     req pip || return 5
-    cz -f 0 -e "pip show {0}" < <(pip list)
+    cz -f 0 -e "pip show {0}" \
+       -i <(pip list --format=json | jq -r '.[] | [.name, .version] | @tsv')
+}
+
+cz_raku_installed() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz raku installed
+Select an install raku modules.
+EOF
+    req sed zef || return 5
+    cz -f 0 -e 'zef info {0}' -i <(zef list -i)
 }
 
 cz_raku_module() {
-        { hep "$_CZ_HELP" && return; } <<EOF
-cz raku installed
-Select a generated password of given length.
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz raku module
+Select an available raku module.
 EOF
     req sed zef || return 5
-    cz -f 0 -i <(zef list -i 2>/dev/null | sed 's/:ver/ /')
+    if (("$#")); then
+        cz -f 0 -e 'zef install {0}' \
+           -i <(zef search "$@" | awk -F'|' '/^[[:digit:]]/{ print $3, $4 }')
+    else
+        cz -f 0 -e 'zef install {0}' \
+           -i <(hold -ept 86400 -- zef list)
+    fi
 }
 
 cz_screen_session() {
@@ -4022,7 +4060,7 @@ cz xrandr monitor
 Select a X11 monitor.
 EOF
     req xrandr sed || return 5
-    cz -d: -f 1 -i <(xrandr --listmonitors | sed '1d')
+    cz -d: -f 1 -i <(xrandr --listmonitors | sed 1d)
 }
 
 cz_xrandr_provider() {
@@ -4031,7 +4069,7 @@ cz xrandr provider
 Select a X11 provider.
 EOF
     req xrandr sed || return 5
-    cz -f 0 -i <(xrandr --listproviders | sed '1d')
+    cz -f 0 -i <(xrandr --listproviders | sed 1d)
 }
 
 cz_xrdb_resource() {

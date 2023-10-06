@@ -10,19 +10,20 @@ What is an "interactive line selection tool"? It's a kind of program that reads 
 
 Cz implements a plugin system. Each plugin defines lines from which to select, an output template, and a command template. Creating new plugins is quick and painless in any programming language.
 
-Included are over 250 plugins covering a variety of use cases. For example with some of the included plugins you can select from:
+Included are almost 300 plugins covering a variety of use cases. For example with some of the included plugins you can select from:
 
 - items from [[https://www.gnu.org/software/bash/manual/bash.html#Programmable-Completion-Builtins-1][bash's built-in completion]]
 - [[https://git-scm.com/][Git]] branches, commits, tags, etc.
 - [[https://home.unicode.org/][Unicode]] characters
 - [[https://www.passwordstore.org/][pass(1)]] passwords
 - elements from [[https://www.json.org/][JSON]]/[[http://yaml.org/][YAML]]/[[https://www.w3.org/XML/][XML]] documents
-- [[https://www.docker.com/][Docker]]
+- [[https://www.docker.com/][Docker]] components
 - [[https://i3wm.org/][i3 window manager]] components
 - [[https://www.terraform.io/][Terraform]] elements
 - [[https://www.musicpd.org/][Mpd]] tracks and tags
 - [[https://systemd.io/][Systemd]] units
 - [[https://github.com/tmux/tmux][Tmux]] components
+- Internet [[https://www.rfc-editor.org/][RFCs]]
 
 ** Tools
 
@@ -31,6 +32,7 @@ The following line selection tools are supported:
  - [[https://tools.suckless.org/dmenu][dmenu]]
  - [[https://github.com/junegunn/fzf][fzf]]
  - [[https://github.com/jhawthorn/fzy][fzy]]
+ - [[https://github.com/charmbracelet/gum][gum]]
  - [[http://www.ossp.org/pkg/tool/iselect][iselect]]
  - [[https://github.com/mptre/pick][pick]]
  - [[https://code.reversed.top/user/xaizek/pipedial][pipedial]]
@@ -100,8 +102,8 @@ OPTIONS
 
 TOOLS
  The following interactive line selection tools are supported:
-  choose, dmenu, fzf, fzy, iselect, pick, pipedial, rofi, selecta, sentaku,
-  slmenu, vis-menu, and zenity.
+  choose, dmenu, fzf, fzy, gum, iselect, pick, pipedial, rofi, selecta,
+  sentaku, slmenu, vis-menu, and zenity.
 
 PLUGINS
  Plugins use cz for an application specific task. Each plugin defines input
