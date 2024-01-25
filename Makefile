@@ -1,13 +1,16 @@
 SHELL := /bin/bash
 all: test www
 
-test: unit lint
-
-unit:
-	./test/cztest
+test: lint unit structure
 
 lint:
 	shellcheck ./cz
+
+unit:
+	./test/unit
+
+structure:
+	./test/structure
 
 WWW_SOURCES := $(wildcard www/*.org)
 
@@ -23,7 +26,7 @@ www/:
 	mkdir -p ./www
 
 gif:
-	gifcut -b1 "$$(capture -Wt20)" "www/img/window-$$(date +%s).gif"
+	gifcut -b1 "$$(capture -W)" "www/img/window-$$(date +%s).gif"
 
 push:
 	git push github

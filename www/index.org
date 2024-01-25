@@ -59,9 +59,9 @@ chmod +x ~/bin/cz
 Cz requires at least bash version 4. Mac OS users should `brew install bash`.
 
 ** Usage
-#+begin_src
+#+begin_src text
 cz [OPTIONS] [PLUGIN...] [ARGS ...] [< LINES]
-Select a line using your preferred interactive line selection tool.
+Select a line using an interactive line selection tool.
 
 OPTIONS
  These options print some information then exit:
@@ -73,12 +73,12 @@ OPTIONS
 
  These options set the program mode. Select a line then... :
   -p : print    : Print the line. This is the default mode.
-  -q : quoted   : Print fields from the line in shell quotes.
+  -q : quote    : Print fields from the line in shell quotes.
   -r : run      : Run a templated command.
   -s : simulate : Print a templated command.
   -t : template : Print a templated string.
-  -u : unquoted : Print fields from the line literally.
-  -o :          : Only print input lines instead of selecting a line.
+  -u : unquote  : Print fields from the line literally.
+  -o : output   : Only print input lines instead of selecting a line.
 
  These options set a template:
   -e TEMPLATE   : Set the command template. This option implies mode '-r'.
@@ -92,13 +92,14 @@ OPTIONS
   -i IN-FILE    : Set file from which to read selections instead of stdin.
 
  These options control how lines are selected:
+  -n NUMBER     : Select a line the given number of times.
   -w            : Pick a line at random.
   -x            : Use a graphical line selection tool.
   -y            : Use a terminal line selection tool.
   -z TOOL       : Use the given line selection tool.
 
  These options control debugging features:
-  -m            : Print some debygging information.
+  -m            : Print some debugging information.
 
 TOOLS
  The following interactive line selection tools are supported:

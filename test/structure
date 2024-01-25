@@ -1,0 +1,28 @@
+#!/bin/bash
+
+TESTS=0
+FAILS=0
+
+assert_successful() {
+    (( TESTS++ ))
+    local msg="$1"
+    shift
+    if ! eval "$@"; then
+        printf "FAIL %s\n command: %s\n" "$msg" "$*"
+        (( FAILS++ ))
+        return 1
+    fi
+}
+
+cz_plugins_ordered() {
+    local filter='/^###/ { p=0 }; /^### PLUGINS/ { p=1 }; /^cz_/ { if (p == 1) { print $1 } }'
+    diff -u <(awk "$filter" cz) <(awk "$filter" cz | sort)
+}
+
+assert_successful "cz plugins are in alphabetical order" cz_plugins_ordered
+
+if (( FAILS )); then
+    printf "FAIL %d/%d" "$FAILS" "$TESTS"
+else
+    printf "PASS %d/%d\n" "$TESTS" "$TESTS"
+fi

@@ -71,77 +71,80 @@ bash\`.
 
 ## Usage
 
-    cz [OPTIONS] [PLUGIN...] [ARGS ...] [< LINES]
-    Select a line using your preferred interactive line selection tool.
-    
-    OPTIONS
-     These options print some information then exit:
-      -h : help     : Show this help text or help text for plugin.
-      -H : example  : List example commands.
-      -k : tools    : List supported line selection tools.
-      -l : plugins  : List detected plugins.
-      -v : version  : Show version string.
-    
-     These options set the program mode. Select a line then... :
-      -p : print    : Print the line. This is the default mode.
-      -q : quoted   : Print fields from the line in shell quotes.
-      -r : run      : Run a templated command.
-      -s : simulate : Print a templated command.
-      -t : template : Print a templated string.
-      -u : unquoted : Print fields from the line literally.
-      -o :          : Only print input lines instead of selecting a line.
-    
-     These options set a template:
-      -e TEMPLATE   : Set the command template. This option implies mode '-r'.
-      -f FIELDS     : Set the field template. This option implies mode '-q'.
-    
-     These options control input and line splitting:
-      -c            : Do not use cached input lines.
-      -d DELIMITER  : Set the field splitting characters.
-      -g            : Buffer stdin and pass it to command set with '-e'.
-      -0            : Read null terminated lines from input.
-      -i IN-FILE    : Set file from which to read selections instead of stdin.
-    
-     These options control how lines are selected:
-      -w            : Pick a line at random.
-      -x            : Use a graphical line selection tool.
-      -y            : Use a terminal line selection tool.
-      -z TOOL       : Use the given line selection tool.
-    
-     These options control debugging features:
-      -m            : Print some debygging information.
-    
-    TOOLS
-     The following interactive line selection tools are supported:
-      choose, dmenu, fzf, fzy, gum, iselect, pick, pipedial, rofi, selecta,
-      sentaku, slmenu, vis-menu, and zenity.
-    
-    PLUGINS
-     Plugins use cz for an application specific task. Each plugin defines input
-      lines, delimiter, and template options.
-     Run 'cz -l' to list plugins and 'cz -h PLUGIN' or 'cz help' for help text.
-     All commands starting with 'cz_' are considered plugins.
-    
-    TEMPLATES
-     Sub-strings of TEMPLATE in the following formats are replaced with
-      one or more fields from a selected line split by DELIMITER.
-         {X}     - field X
-         {X:}    - fields X through end of fields
-         {X:Y}   - fields X through X + Y
-         {X,Y,Z} - fields X, Y, and Z
-    
-     Append @C, @E, @P, or @Q to transform selected fields:
-      {X@C} - Insert argument directly. This is risky for command strings!
-      {X@E} - Replace backslash escape sequences in arguments with bash $'...' quotes.
-      {X@P} - Expand arguments for use in prompt strings.
-      {X@Q} - Quote arguments for use in command input. This is the default.
-    
-    ENVIRONMENT
-     CZ_GUI         : The preferred interface (1=graphical 0=terminal).
-     CZ_BINS        : A list of line selection tools in order of preference.
-     CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB).
-     CZ_DMENU_FONT  : The font to use for dmenu.
-     CZ_ROFI_THEME  : The theme to use for rofi.
+``` text
+cz [OPTIONS] [PLUGIN...] [ARGS ...] [< LINES]
+Select a line using an interactive line selection tool.
+
+OPTIONS
+ These options print some information then exit:
+  -h : help     : Show this help text or help text for plugin.
+  -H : example  : List example commands.
+  -k : tools    : List supported line selection tools.
+  -l : plugins  : List detected plugins.
+  -v : version  : Show version string.
+
+ These options set the program mode. Select a line then... :
+  -p : print    : Print the line. This is the default mode.
+  -q : quote    : Print fields from the line in shell quotes.
+  -r : run      : Run a templated command.
+  -s : simulate : Print a templated command.
+  -t : template : Print a templated string.
+  -u : unquote  : Print fields from the line literally.
+  -o : output   : Only print input lines instead of selecting a line.
+
+ These options set a template:
+  -e TEMPLATE   : Set the command template. This option implies mode '-r'.
+  -f FIELDS     : Set the field template. This option implies mode '-q'.
+
+ These options control input and line splitting:
+  -c            : Do not use cached input lines.
+  -d DELIMITER  : Set the field splitting characters.
+  -g            : Buffer stdin and pass it to command set with '-e'.
+  -0            : Read null terminated lines from input.
+  -i IN-FILE    : Set file from which to read selections instead of stdin.
+
+ These options control how lines are selected:
+  -n NUMBER     : Select a line the given number of times.
+  -w            : Pick a line at random.
+  -x            : Use a graphical line selection tool.
+  -y            : Use a terminal line selection tool.
+  -z TOOL       : Use the given line selection tool.
+
+ These options control debugging features:
+  -m            : Print some debugging information.
+
+TOOLS
+ The following interactive line selection tools are supported:
+  choose, dmenu, fzf, fzy, gum, iselect, pick, pipedial, rofi, selecta,
+  sentaku, slmenu, vis-menu, and zenity.
+
+PLUGINS
+ Plugins use cz for an application specific task. Each plugin defines input
+  lines, delimiter, and template options.
+ Run 'cz -l' to list plugins and 'cz -h PLUGIN' or 'cz help' for help text.
+ All commands starting with 'cz_' are considered plugins.
+
+TEMPLATES
+ Sub-strings of TEMPLATE in the following formats are replaced with
+  one or more fields from a selected line split by DELIMITER.
+     {X}     - field X
+     {X:}    - fields X through end of fields
+     {X:Y}   - fields X through X + Y
+     {X,Y,Z} - fields X, Y, and Z
+
+ Append @C, @E, @P, or @Q to transform selected fields:
+  {X@C} - Insert argument directly. This is risky for command strings!
+  {X@E} - Replace backslash escape sequences in arguments with bash $'...' quotes.
+  {X@P} - Expand arguments for use in prompt strings.
+  {X@Q} - Quote arguments for use in command input. This is the default.
+
+ENVIRONMENT
+ CZ_GUI         : The preferred interface (1=graphical 0=terminal).
+ CZ_BINS        : A list of line selection tools in order of preference.
+ CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB).
+ CZ_DMENU_FONT  : The font to use for dmenu.
+ CZ_ROFI_THEME  : The theme to use for rofi.
+```
 
 ## Configuration
 
