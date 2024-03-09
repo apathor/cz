@@ -12,6 +12,7 @@ Cz implements a plugin system. Each plugin defines lines from which to select, a
 
 Included are almost 300 plugins covering a variety of use cases. For example with some of the included plugins you can select from:
 
+- files and directories
 - items from [[https://www.gnu.org/software/bash/manual/bash.html#Programmable-Completion-Builtins-1][bash's built-in completion]]
 - [[https://git-scm.com/][Git]] branches, commits, tags, etc.
 - [[https://home.unicode.org/][Unicode]] characters
@@ -28,32 +29,36 @@ Included are almost 300 plugins covering a variety of use cases. For example wit
 ** Tools
 
 The following line selection tools are supported:
- - [[https://github.com/chipsenkbeil/choose][choose]]
- - [[https://tools.suckless.org/dmenu][dmenu]]
- - [[https://github.com/junegunn/fzf][fzf]]
- - [[https://github.com/jhawthorn/fzy][fzy]]
- - [[https://github.com/charmbracelet/gum][gum]]
- - [[http://www.ossp.org/pkg/tool/iselect][iselect]]
- - [[https://github.com/mptre/pick][pick]]
- - [[https://code.reversed.top/user/xaizek/pipedial][pipedial]]
- - [[https://github.com/davatorium/rofi][rofi]]
- - [[https://github.com/garybernhardt/selecta][selecta]]
- - [[https://github.com/rcmdnk/sentaku][sentaku]]
- - [[https://www.gnu.org/software/coreutils/manual/html_node/shuf-invocation.html][shuf]]
- - [[https://github.com/joshaw/slmenu][slmenu]]
- - [[https://github.com/martanne/vis][vis-menu]]
- - [[https://wiki.gnome.org/Projects/Zenity][zenity]]
+
+| Tool     | Mode | Rating |
+|----------+------+--------|
+| [[https://github.com/chipsenkbeil/choose][choose]]   | GUI  | 🍎     |
+| [[https://tools.suckless.org/dmenu][dmenu]]    | GUI  | 😎     |
+| [[https://github.com/junegunn/fzf][fzf]]      | TTY  | 😸     |
+| [[https://github.com/jhawthorn/fzy][fzy]]      | TTY  | 😺     |
+| [[https://github.com/charmbracelet/gum][gum]]      | TTY  | 🤩     |
+| [[http://www.ossp.org/pkg/tool/iselect][iselect]]  | TTY  | 😏     |
+| [[https://github.com/mptre/pick][pick]]     | TTY  | 😃     |
+| [[https://code.reversed.top/user/xaizek/pipedial][pipedial]] | TTY  | 😒     |
+| [[https://github.com/davatorium/rofi][rofi]]     | GUI  | 😄     |
+| [[https://github.com/garybernhardt/selecta][selecta]]  | TTY  | 😉     |
+| [[https://github.com/rcmdnk/sentaku][sentaku]]  | TTY  | 🙄     |
+| [[https://github.com/joshaw/slmenu][slmenu]]   | TTY  | 😞     |
+| [[https://github.com/martanne/vis][vis-menu]] | TTY  | 😢     |
+| [[https://wiki.gnome.org/Projects/Zenity][zenity]]   | GUI  | 🤮     |
 
 Many thanks to the authors of the above tools!
 
+Aware of any other line selection tools? Let me know.
+
 ** Installation
 
-#+begin_src sh
+#+begin_src bash
 # just download the script to a directory on your path
-curl -sS https://raw.githubusercontent.com/apathor/cz/master/cz -o ~/bin/cz
+curl https://raw.githubusercontent.com/apathor/cz/master/cz -o ~/bin/cz
 
 # and make it executable
-chmod +x ~/bin/cz
+chmod -v +x ~/bin/cz
 #+end_src
 
 Cz requires at least bash version 4. Mac OS users should `brew install bash`.
