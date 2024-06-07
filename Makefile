@@ -28,7 +28,10 @@ www/:
 gif:
 	gifcut -b1 "$$(capture -W)" "www/img/window-$$(date +%s).gif"
 
-push:
-	git push github
+docker: docker-build
+	docker run -i -t cz
 
-.PHONY: gif lint push test unit www
+docker-build:
+	docker build -t cz .
+
+.PHONY: gif docker docker-build lint test unit www
