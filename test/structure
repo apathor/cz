@@ -15,8 +15,9 @@ assert_successful() {
 }
 
 cz_plugins_ordered() {
+    local path="./bin/cz"
     local filter='/^###/ { p=0 }; /^### PLUGINS/ { p=1 }; /^cz_/ { if (p == 1) { print $1 } }'
-    diff -u <(awk "$filter" cz) <(awk "$filter" cz | sort)
+    diff -u <(awk "$filter" "$path") <(awk "$filter" "$path" | sort)
 }
 
 assert_successful "cz plugins are in alphabetical order" cz_plugins_ordered

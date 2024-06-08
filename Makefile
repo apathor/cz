@@ -4,7 +4,7 @@ all: test www
 test: lint unit structure
 
 lint:
-	shellcheck ./cz
+	shellcheck ./bin/cz
 
 unit:
 	./test/unit

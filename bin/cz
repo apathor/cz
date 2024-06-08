@@ -116,14 +116,16 @@ EXAMPLES
   $ hold -e -n foo -t 60 bash -c "sleep 3 && date"
  Cache a long running pipeline.
   $ hold -g -n bar -t 30 || hold -f -x -n bar <(sleep 3 && date)
- Get a cache file by name.
+ Get the most recent cached file with the given name.
   $ f="\$(hold -g -n foo)"; cat "\$f"
  Retreive cache file contents.
-  $ hold -g -p -n foo
+  $ hold -g -p -n xyzzy
  Overwrite a cache.
-  $ hold -f -x -n bar - <<< "test"
+  $ hold -f -x -n thud - <<< "test"
  Accept a file argument or stdin in one command.
-  $ hold -f -x -n qux "\${1:--}"
+  $ input=\$(hold -f -x -n qux "\${1:--}")
+ Flush all cache files with the given name.
+  $ hold -d -n plugh
 EOF
     # help out
     if (( $# == 0 )); then
@@ -331,7 +333,7 @@ EOF
     local p="$1"
     shift
     (
-        # filter environment variables
+        # unset environment variables matching the pattern
         while read -r v; do
             if [[ "$v" =~ $p ]]; then
                 unset "$v"
@@ -369,11 +371,11 @@ OPTIONS
   Use @C, @E, @P, or @Q transform by default for each variable.
 
 EXAMPLES
- $ nth -p "{2,25}" {A..Z}        = C Z
- $ nth -q "{0:}" foo bar baz     = 'foo' 'bar' 'baz'
- $ nth "{1@Q} {0@P}" "a b" "c d" = 'c d' a b
- $ nth "({2,1})" w x y z         = ('y' 'x')
-
+ $ nth -p "{2,25}" {A..Z}                = C Z
+ $ nth -q "{0:}" foo bar baz             = 'foo' 'bar' 'baz'
+ $ nth "{1@Q} {0@P}" "a b" "c d"         = 'c d' a b
+ $ nth "({2,1})" w x y z                 = ('y' 'x')
+ $ nth -p '{15}{0}{0}{13}' {0..9} {A..F} = F00D
 EOF
     # accept options
     local pto="Q"
@@ -472,7 +474,7 @@ EOF
                     fi
                     fmt=""
                     # add selected fields to output
-                    out+="${more%"${more##*[![:space:]]}"}"
+                    out+="${more%${more##*[![:space:]]}}"
                     ;;
                 '@') # field transformation string
                     case "$next" in
@@ -713,7 +715,7 @@ EOF
 
 cz() {
     # version
-    local ver="0.8.9"
+    local ver="0.9.0"
     # usage
     local hows="" use=""
     read -r -d '' use <<EOF
@@ -738,8 +740,8 @@ OPTIONS
   -o : output   : Only print input lines instead of selecting a line.
 
  These options set a template:
-  -e TEMPLATE   : Set the command template. This option implies mode '-r'.
-  -f FIELDS     : Set the field template. This option implies mode '-q'.
+  -e TEMPLATE   : Set the command template used in run and simulate modes.
+  -f FIELDS     : Set the field template used in quote and unquote modes.
 
  These options control input and line splitting:
   -c            : Do not use cached input lines.
@@ -757,11 +759,6 @@ OPTIONS
 
  These options control debugging features:
   -m            : Print some debugging information.
-
-TOOLS
- The following interactive line selection tools are supported:
-  choose, dmenu, fzf, fzy, gum, iselect, pick, pipedial, rofi, selecta,
-  sentaku, slmenu, vis-menu, and zenity.
 
 PLUGINS
  Plugins use cz for an application specific task. Each plugin defines input
@@ -784,7 +781,7 @@ TEMPLATES
   {X@Q} - Quote arguments for use in command input. This is the default.
 
 ENVIRONMENT
- CZ_GUI         : The preferred interface (1=graphical 0=terminal).
+ CZ_GUI         : Boolean whether to use a graphical selector (1=GUI 0=TTY).
  CZ_BINS        : A list of line selection tools in order of preference.
  CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB).
  CZ_DMENU_FONT  : The font to use for dmenu.
@@ -801,10 +798,10 @@ Pick a line randomly instead of interactively.:$ printf "%s\\n" {A..Z} | cz -w
 Add selection to common commands.:$ cz -r -e 'dig {0} AAAA +short' compgen hostname
 Extend plugins with bash functions.:$ cz_whois() { cz -e 'whois {0}' -f 0 compgen hostname; }; cz whois
 Select a password and put it on an xclip clipboard.:$ cz pass | cz xclip in
-Jump to any descendant directory.:$ cd \$(cz descendant)
-Jump to any ancestor directory.:$ cd \$(cz ancestor)
+Jump to any descendant directory.:$ cd "\$(cz -u descendant)"
+Jump to any ancestor directory.:$ cd "\$(cz -u ancestor)"
 Grab a URL from a paste buffer and open it in a browser.:$ cz xclip out | cz -r -e 'firefox {0}' uri
-Compose plugins to get the contents of any element from any JSON file.:$ cz -e 'cz jq {0}' locate *.json
+Compose plugins to get the contents of an element from a JSON file.:$ cz -e 'cz jq {0}' locate *.json
 Compose plugins to get any file under an apparix bookmarked directory.:$ cz -e 'cz find file {1}' apparix
 Find a file then open it for editing:$ find . -type f -print0 | cz -0 -r -e 'vim {0}'
 Consult the I Ching.:$ cz -u -w -f0,2 -n 10 unicode character 'Yijing Hexagram Symbols'
@@ -825,6 +822,7 @@ sentaku   https://github.com/rcmdnk/sentaku
 sk        https://github.com/lotabout/skim
 slmenu    https://bitbucket.org/rafaelgg/slmenu
 vis-menu  https://github.com/martanne/vis
+zenity    https://help.gnome.org/users/zenity/stable/
 EOF
     # append one random example to usage text
     local des="" exp=""
@@ -839,21 +837,21 @@ EOF
     IFS=: read -r gfx app _ <<< "${CZ_GUI:-2}"
     if [ -z "$DISPLAY" ]; then gfx=0; fi
     # set options from the environment
-    local tpl="${_CZ_TEMPLATE}"         # string  | command template
-    local fld="${_CZ_FIELDS}"           # string  | field selection
-    local mode="${_CZ_MODE}"            # string  | indicator for program mode
-    local num="${_CZ_NUMBER:-1}"        # integer | number of lines to select
-    local help="${_CZ_HELP}"            # string  | indicator for help requested
-    local dlm="${_CZ_DELIM:-$IFS}"      # string  | delimeter to split selected line
+    local tpl="${_CZ_TEMPLATE}"          # string  | command template
+    local fld="${_CZ_FIELDS}"            # string  | field selection
+    local mode="${_CZ_MODE}"             # string  | indicator for program mode
+    local num="${_CZ_NUMBER:-1}"         # integer | number of lines to select
+    local help="${_CZ_HELP}"             # string  | indicator for help requested
+    local dlm="${_CZ_DELIM:-$IFS}"       # string  | delimeter to split selected line
     local dbg="${CZ_DEBUG:-$_CZ_DEBUG}" # boolean | whether or not write debug info
     # set option defaults
-    local inp="/dev/stdin"              # string  | file from which to select a line
-    local buf=0                         # boolean | require buffered stdin for command
-    local plan=""                       # string  | program mode implied by another option
-    local nul=0                         # boolean | whether to read null separated lines
-    local clr=0                         # boolean | whether to refresh cached input lines
+    local inp="/dev/stdin"               # string  | file from which to select a line
+    local buf=0                          # boolean | require buffered stdin for command
+    local plan=""                        # string  | program mode implied by another option
+    local nul=0                          # boolean | whether to read null separated lines
+    local clr=0                          # boolean | whether to refresh cached input lines
     # accept options
-    printf "OPTS %s\\n" "$(nnow)" | hep "$dbg"
+    printf "OPTS %s\\n" "$(nnow)" | hep "$CZ_TIMING"
     local opt OPTIND OPTARG
     while getopts ":cd:e:f:ghHi:klmn:opqrstuvwxyz:0" opt; do
         case "$opt" in
@@ -888,7 +886,7 @@ EOF
             i) # set input file from which to read selections
                 inp="$OPTARG"
                 if ! [ -r "$inp" ]; then
-                    printf "%s\\n" "Input file is unreadable!" >&2
+                    printf "Input file is unreadable: -i %s\\n" "${inp@Q}" >&2
                     return 2
                 fi
                 ;;
@@ -904,13 +902,13 @@ EOF
                 done < <(compgen -c) | sort
                 return 0
                 ;;
-            m) # mention some debugging information
+            m) # enabke debugging messages
                 dbg=1
                 ;;
             n) # select more than one line
                 num="$OPTARG"
                 if ! [[ "$num" =~ ^[[:digit:]]+$ ]]; then
-                    printf "Invalid number options!\\n" >&2
+                    printf "Invalid number option: -n %s \\n" "${num@Q}" >&2
                     return 1
                 fi
                 ;;
@@ -951,7 +949,7 @@ EOF
             z) # use a specific line selection tool
                 app="$OPTARG"
                 if ! (( gbins["$app"] + tbins["$app"] )) ; then
-                    printf "Unknown line selection tool '%s'\\n" "$app" >&2
+                    printf "Unknown line selection tool: -z %s.\\nRun 'cz -k' to list supported tools.\\n" "${app@Q}" >&2
                     return 2
                 fi
                 ;;
@@ -1014,7 +1012,7 @@ EOF
             return 2
         fi
         shift "$word"
-        printf "PLUG %s %s\\n" "$(nnow)" "$plug" | hep "$dbg"
+        printf "PLUG %s %s\\n" "$(nnow)" "$plug" | hep "$CZ_TIMING"
         # run the plugin with override environment variables
         _CZ_DELIM="$dlm" \
                  _CZ_DEBUG="$dbg" \
@@ -1036,9 +1034,9 @@ EOF
         printf "%s\\n" "$use" >&2
         return
     fi
-    # cache the selection file
-    printf "READ %s\\n" "$(nnow)" | hep "$dbg"
-    local id="cz_$$" sel=""
+    # cache the selections file for fast access
+    printf "READ %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+    local id="cz_$$_${RANDOM}" sel=""
     if ((nul)); then
         local lines=()
         mapfile -d '' -t lines < "$inp"
@@ -1048,21 +1046,22 @@ EOF
     else
         sel="$inp"
     fi
-    if ! [ -f "$sel" ]; then
-        return 11
+    if ! [ -s "$sel" ]; then
+        printf "Empty selections file.\\n" | hep "$dbg"
+        return 6
     fi
-    # buffer stdin if reading selection input from another file
+    # buffer stdin if reading selections input from another file
     # this is needed to pass pipe input to plugin commands
     # optionally require actual input lines
     local stdin=()
     if [[ "$inp" != "/dev/stdin" ]] && ! [ -t 0 ]; then
-        printf "STDIN %s\\n" "$(nnow)" | hep "$dbg"
+        printf "STDIN %s\\n" "$(nnow)" | hep "$CZ_TIMING"
         mapfile -t stdin
         if ((buf)) && ! ((${#stdin})); then return 4; fi
     fi
     # maybe just write selections to stdout
     if [[ "$mode" == "output" ]]; then
-        printf "OUTPUT %s\\n" "$(nnow)" | hep "$dbg"
+        printf "OUTPUT %s\\n" "$(nnow)" | hep "$CZ_TIMING"
         printf "%s\\n" "$(< "$sel")"
         return 0
     fi
@@ -1071,9 +1070,10 @@ EOF
     trap 'hold -d -n ${id}; trap - RETURN SIGINT SIGTERM' RETURN
     # loop for desired number of selections
     local count=0
+    printf "PICK %s\\n" "$(nnow)" | hep "$CZ_TIMING"
     while (( num == 0 )) || (( ++count <= num )); do
         # choose a line using a known program
-        printf "PICK %s %d/%d %s %s \\n" "$(nnow)" "$count" "$num" "$app" "$sel" | hep "$dbg"
+        printf "? %d/%d %s %s \\n" "$count" "$num" "$app" "$sel" | hep "$dbg"
         local out=""
         out=$(case "$app" in
                   choose)
@@ -1161,29 +1161,32 @@ EOF
         plan="${plan:-print}"
         mode="${mode:-$plan}"
         # do something with the selection depending on mode
-        printf "MODE %s %s\\n" "$(nnow)" "$mode" | hep "$dbg"
+        printf "MODE %s %s\\n" "$(nnow)" "$mode" | hep "$CZ_TIMING"
         case "${mode}" in
             print)
                 # print selection
-                printf "PRINT %s\\n" "$(nnow)" | hep "$dbg"
+                printf "PRINT %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+                printf "P %s\\n" "$out" | hep "$dbg"
                 printf "%s\\n" "$out"
                 ;;
             quote)
                 # print some fields extracted from the line quoted for use in the shell
+                printf "QUOTE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
                 if ! out="$(nth -q -- "$fld" "${toks[@]}" 2>/dev/null)"; then
                     printf "Failed to render template: %s\\n" "$fld" >&2
                     return 5
                 fi
-                printf "QUOTE %s\\n# %s ==> %s\\n" "$(nnow)" "$fld" "$out" | hep "$dbg"
+                printf "Q %s ==> %s\\n" "$fld" "$out" | hep "$dbg"
                 printf "%s\\n" "$out"
                 ;;
             run)
                 # template the command string then run it
+                printf "RUN  %s\\n" "$(nnow)" | hep "$CZ_TIMING"
                 if ! cmd="$(nth -q -- "$tpl" "${toks[@]}" 2>/dev/null)"; then
                     printf "Failed to parse template: %s\\n" "$tpl" >&2
                     return 5
                 fi
-                printf "RUN  %s\\n$ %s\\n" "$(nnow)" "$cmd" | hep "$dbg"
+                printf "R %s ==> %s\\n" "$tpl" "$cmd" | hep "$dbg"
                 unset -v _CZ_DELIM _CZ_FIELDS _CZ_HELP _CZ_MODE _CZ_TEMPLATE HOLD_CLEAR
                 # eval the command maybe passing through stdin or the terminal
                 if ((${#stdin})); then
@@ -1196,33 +1199,37 @@ EOF
                 ;;
             simulate)
                 # render the command string with shell quotes
+                printf "SIMULATE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
                 if ! cmd="$(nth -q "$tpl" "${toks[@]}")"; then
                     printf "Failed to render template.\\n%s\\n" "$tpl" >&2
                     return 4
                 fi
-                printf "SIMULATE %s\\n> %s ==> %s\\n" "$(nnow)" "$tpl" "$cmd" | hep "$dbg"
+                printf "S %s ==> %s\\n" "$tpl" "$cmd" | hep "$dbg"
                 printf "%s\\n" "$cmd"
                 ;;
             template)
                 # render the command template directly
+                printf "TEMPLATE %s\\n" "$(nnow)" | cz "$CZ_TIMING"
                 if ! cmd="$(nth -p "$tpl" "${toks[@]}")"; then
                     printf "Failed to render template.\\n%s\\n" "$tpl" >&2
                     return 4
                 fi
-                printf "TEMPLATE %s\\n> %s ==> %s\\n" "$(nnow)" "$tpl" "$cmd" | hep "$dbg"
+                printf "T %s ==> %s\\n" "$tpl" "$cmd" | hep "$dbg"
                 printf "%s\\n" "$cmd"
                 ;;
             unquote)
                 # print some fields extracted from the line
+                printf "UNQUOTE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
                 if ! out="$(nth -p -- "$fld" "${toks[@]}" 2>/dev/null)"; then
                     printf "Failed to render template: %s\\n" "$fld" >&2
                     return 5
                 fi
-                printf "UNQUOTE %s\\n> %s ==> %s\\n" "$(nnow)" "$fld" "$out" | hep "$dbg"
+                printf "U %s ==> %s\\n" "$fld" "$out" | hep "$dbg"
                 printf "%s\\n" "$out"
                 ;;
         esac
     done
+    printf "DONE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
     return 0
 }
 
@@ -1670,6 +1677,55 @@ EOF
         done < <(jobs -l))
 }
 
+cz_bash_test() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz bash test
+Select a bash test job and move it to the foreground.
+EOF
+
+    local tests=()
+    read -r -d '' tests <<EOF
+-a FILE:         True if file exists.
+-b FILE:         True if file is block special.
+-c FILE:         True if file is character special.
+-d FILE:         True if file is a directory.
+-e FILE:         True if file exists.
+-f FILE:         True if file exists and is a regular file.
+-g FILE:         True if file is set-group-id.
+-h FILE:         True if file is a symbolic link.
+-L FILE:         True if file is a symbolic link.
+-k FILE:         True if file has its 'sticky' bit set.
+-p FILE:         True if file is a named pipe.
+-r FILE:         True if file is readable by you.
+-s FILE:         True if file exists and is not empty.
+-S FILE:         True if file is a socket.
+-t FD:           True if FD is opened on a terminal.
+-u FILE:         True if the file is set-user-id.
+-w FILE:         True if the file is writable by you.
+-x FILE:         True if the file is executable by you.
+-O FILE:         True if the file is effectively owned by you.
+-G FILE:         True if the file is effectively owned by your group.
+-N FILE:         True if the file has been modified since it was last read.
+FILE1 -nt FILE2: True if file1 is newer than file2 (according to
+FILE1 -ot FILE2: True if file1 is older than file2.
+FILE1 -ef FILE2: True if file1 is a hard link to file2.
+-z STRING:       True if string is empty.
+-n STRING:       True if string is non-empty
+-o OPTION:       True if the shell option OPTION is enabled.
+-v VAR:          True if the shell variable VAR is set.
+-R VAR:          True if the shell variable VAR is set and is a name
+EXPR1 -a EXPR2:  True if both expr1 AND expr2 are true.
+EXPR1 -o EXPR2:  True if either expr1 OR expr2 is true.
+ARG1 -eq ARG2:   Arithmetic equality.
+ARG1 -ne ARG2:   Arithmetic non-equality.
+ARG1 -lt ARG2:   Arithmetic less than.
+ARG1 -le ARG2:   Arithmetic less than or equal.
+ARG1 -gt ARG2:   Arithmetic greater than.
+ARG1 -ge ARG2:   Arithmetic greater than or equal.
+EOF
+    cz -d: -f0 -i <(printf "%s\\n" "${tests[@]}")
+}
+
 cz_bluetooth_controller() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz bluetooth controller
@@ -1829,7 +1885,7 @@ Select a hex color by name from available sources.
 EOF
     req sort || return 5
     cz -d $'\t' -e "xdg-open \$(colorblock {0})" -f 0 \
-       -i <( (insulate ^_CZ_ cz -o xkcd rgb; insulate ^_CZ_ cz -o x11 rgb;) | sort)
+       -i <( (insulate ^_CZ_ cz -o xkcd rgb; insulate ^_CZ_ cz -o x11 rgb;) 2>/dev/null | sort)
 }
 
 declare n=""
@@ -1879,9 +1935,10 @@ EOF
 
 cz_cowsay() {
     { hep "$_CZ_HELP" && return; } <<EOF
-cz command
+cz cowsay
 Select a cowsay filter.
 EOF
+    req cowsay || return 5
     cz -g -e "cowsay -n -f {0} -W \"\$COLUMNS\"" -i <(cowsay -l | sed '1d;s/ /\n/g;')
 }
 
@@ -1923,6 +1980,18 @@ EOF
     fi
     cz -e "lp -d {1} $lpopts -- ${inp@Q}" -f 1 \
        -i <(lpstat -p | sed -e :a -e '$!N;s/\n[\t]/ /;ta' -e 'P;D')
+}
+
+cz_deluge() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz deluge
+Select from deluge torrents.
+EOF
+    read -r -d '' filter <<EOF
+if(/^Name/){ \$n = join " ", @F[1..\$#F]; };
+if(/^ID/){ say join(" ", \$F[1], \$n); }
+EOF
+    cz -f0 -e 'deluge-console info {0}' -i <(deluge-console info | perl -lanE "$filter" )
 }
 
 cz_descendant() {
@@ -2886,23 +2955,28 @@ cz grep PATTERN [TARGET]
 Select a file and line matching grep results for PATTERN in TARGET.
 If TARGET is a directory search it recursively.
 EOF
+    req grep || return 5
     local pattern="${1}"
     if [[ -z "$pattern" ]]; then
        return 2
     fi
     shift
-    local targets=("${@:-.}")
-    local matches=""
-    if type rg &>/dev/null; then
-        matches=$(rg --hidden -Hn -- "$pattern" "${targets[@]}")
-    elif type grep &>/dev/null; then
-        matches=$(grep -r -Hn -- "$pattern" "${targets[@]}")
-    else
-        printf "Either grep or rg is required!\\n" >&2
-        return 5
-    fi
+    # cache stdin argument otherwise targets are paths
+    local targets=() arg=""
+    for arg in "$@"; do
+        if [[ "$arg" == "-" ]]; then
+            targets+=( "$(hold -f -x -)" )
+        else
+            targets+=( "$arg" )
+        fi
+    done
     cz -d ':' -f "0,1" -e "${EDITOR@Q} +{1} -- {0}" \
-       -i <(printf "%s\\n" "$matches")
+       -i <(if type rg &>/dev/null; then
+                rg --hidden -H -n -- "$pattern" "${targets[@]}"
+            else
+                grep -r -H -n -- "$pattern" "${targets[@]}"
+            fi
+           )
 }
 
 _cz_grep() {
@@ -2997,7 +3071,7 @@ Select an HTTP status code.
 EOF
     req awk curl tr || return 5
     local url="https://www.iana.org/assignments/http-status-codes/http-status-codes-1.csv"
-    cz -d, -f1 -i <(hold -ep curl -fsS "$url" | tr -d $'\r' | awk 'NR == 1{ }; NR != 1 { print $0; }')
+    cz -d, -f1 -i <(hold -ep curl -fsS "$url" | tr -d $'\r' | awk 'NR == 1 { }; NR != 1 { print $0; }')
 }
 
 cz_i3_bind() {
@@ -3360,7 +3434,7 @@ cz mimetype
 Select a mimetype and related file extensions.
 EOF
     req grep /etc/mime.types || return 5
-    cz -f 0 -i <(grep -v -e '^#' -e '^$' /etc/mime.types)
+    cz -e 'xdg-mime query default {0}' -f 0 -i <(grep -v -e '^#' -e '^$' /etc/mime.types)
 }
 
 cz_mount() {
@@ -3422,7 +3496,7 @@ cz mpd $t
 Select from available mpd database $t tags.
 EOF
     req mpc || return 5
-    cz -d '' -f 0 -i <(mpc list $t)
+    cz -e 'mpc search $t {0}' -d '' -f 0 -i <(mpc list $t)
 }"
 done
 unset t
@@ -3557,7 +3631,7 @@ EOF
 # Format the strings so they can be appended into a command array.
 cz_oaf_format() {
     { hep "$_CZ_HELP" && return; } <<EOF
-cz oaf format [LANGUAGE] < STREAM
+cz oaf [LANGUAGE] < STREAM
 Quote given input into the selected document quote format.
 See https://metacpan.org/pod/App::oaf for installation.
 EOF
@@ -4120,6 +4194,16 @@ EOF
     cz -i <(tmux list-keys)
 }
 
+cz_tmux_layout() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz tmux layout
+Select a tmux layout and switch to it.
+EOF
+    req tmux || return 5
+    local layouts=(even-horizontal even-vertical main-horizontal main-vertical tiled)
+    cz -e 'tmux select-layout {0}' argv "${layouts[@]}"
+}
+
 cz_tmux_pane() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz tmux pane
@@ -4160,6 +4244,20 @@ EOF
     cz -d '' -f 0 -i <(perl -MUnicode::UCD=charblocks -E 'say for sort keys %{charblocks()}')
 }
 
+cz_unicode_card() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz unicode card
+Select a unicode playing card from a 52 card deck.
+EOF
+    req grep || return 5
+    local cardfile=""
+    cardfile=$(hold -g \
+                   || hold -f -x \
+                           <(insulate ^_CZ_ cz -o unicode character 'Playing Cards' \
+                                 | grep OF | grep -v KNIGHT))
+    cz -f 0 -d : -i "$cardfile"
+}
+
 cz_unicode_character() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz unicode character [SECTION]
@@ -4171,7 +4269,7 @@ EOF
     if (($#)); then
         parts=("$@")
     else
-        parts=("$(_CZ_MODE="" _CZ_FIELDS="" cz -p unicode block)")
+        parts+=("$(_CZ_MODE="" _CZ_FIELDS="" cz -p unicode block)")
     fi
     if [ -z "${parts[*]}" ]; then return 2; fi
     read -d '' -r util <<EOF
@@ -4205,7 +4303,7 @@ _cz_unicode_character() {
 
 cz_unicode_flag() {
     { hep "$_CZ_HELP" && return; } <<EOF
-cz iso flag
+cz unicode flag
 Select an ISO standard Unicode country flag.
 EOF
     req isoquery sed || return 5
@@ -4265,7 +4363,7 @@ Yijing Hexagram Symbols
 EOF
 
     cz -d ':' -e "printf \$'\\U{1@C}'" -f 0 -i \
-       <(hold -gp -t 604800 || \
+       <(hold -g -p -t 604800 || \
              hold -fpx <(insulate ^_CZ_ cz -o unicode character "${blocks[@]}"))
 }
 
@@ -4368,7 +4466,7 @@ EOF
     if (("$#")) && [[ -n "$*" ]];  then
         cz -f 1 -i <(whence "$@")
     else
-        cz -f 1 -i < <(hold -gp -t 86400 || hold -fpx <(compgen -c | whence))
+        cz -f 1 -i < <(hold -g -p -t 86400 || hold -fpx <(compgen -c | whence))
     fi
 }
 
