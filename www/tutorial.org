@@ -9,7 +9,7 @@ Additionally cz provides a framework for plugins. Each plugin defines a set of i
 * Setup
 #+begin_src bash
   # download the script
-  curl -sS https://raw.githubusercontent.com/apathor/cz/master/cz -o cz
+  curl -sS https://raw.githubusercontent.com/apathor/cz/master/bin/cz -o cz
   # mark it executable and put it on your PATH
   chmod +x cz
   cp cz ~/bin
@@ -182,7 +182,9 @@ Wow there are just so many unicode characters huh? There's so many!
 [[file:img/cz-example-unicode.gif][Cz unicode plugin example]]
 
 - *Control-x u* - select and insert a unicode character by block and name
+- *Control-x U* - select and insert a unicode symbol name
 
 #+begin_src bash
-  bind -x '"\C-xg":rleval cz -u unicode'
+  bind -x '"\C-xg":rleval -i cz -u unicode character'
+  bind -x '"\C-xU":rleval -i cz -u unicode symbol'
 #+end_src bash

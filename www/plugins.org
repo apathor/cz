@@ -1,0 +1,46 @@
+#+TITLE: Cz Plugins
+
+* Cz Plugins
+Any command starting with 'cz_' is considered a valid plugin.
+
+Plugins must:
+ - Print usage text if the CZ_HELP environment variable is non-empty.
+ - Provide some application specific input to cz.
+ - Run cz with application specific options (-d, -e, -f, -i) but without setting any of the mode options (-p, -q, -r, -s, -t, -u).
+
+** Example - bash function
+
+A function like the following could be defined in your bash configuration:
+
+#+begin_src sh
+cz_fruit() {
+  if [ -n "$CZ_HELP" ]; then
+    printf "cz fruit\nSelect a fruit\n" >&2
+    return 0
+  fi
+  cz -e 'printf "Go %s!\n" {0}' \
+    -i <(printf "%s\n" apple banana grapefruit orange)
+}
+
+#+end_src
+
+** Example - external program
+
+Use your favorite language! Here is an example plugin that lets you select from powers of two.
+
+Put the following in an executable file called 'cz_twos' on your path:
+
+#+begin_src perl
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+if($ENV{"CZ_HELP"}) {
+  print STDERR "cz twos\nSelect from powers of two.\n";
+  exit 0;
+}
+
+open(my $pipe, "|-", "cz -f 1");
+print $pipe $_ for map { sprintf "%d %d\n", $_, 2 ** $_ } (1..32);
+close($pipe);
+#+end_src

@@ -1,4 +1,4 @@
-#+TITLE: cz - Abstraction over line selection utilities - plus handy plugins!
+#+TITLE: cz - Abstraction for line selection utilities - plus handy plugins!
 #+OPTIONS: ^:{}
 
 * cz
@@ -25,27 +25,29 @@ Included are almost 300 plugins covering a variety of use cases. For example wit
 - [[https://systemd.io/][Systemd]] units
 - [[https://github.com/tmux/tmux][Tmux]] components
 - Internet [[https://www.rfc-editor.org/][RFCs]]
+- [[https://scryfall.com/][Magic: The Gathering]] cards
 
 ** Tools
 
 The following line selection tools are supported:
 
-| Tool     | Mode | Rating |
-|----------+------+--------|
-| [[https://github.com/chipsenkbeil/choose][choose]]   | GUI  | 🍎     |
-| [[https://tools.suckless.org/dmenu][dmenu]]    | GUI  | 😎     |
-| [[https://github.com/junegunn/fzf][fzf]]      | TTY  | 😸     |
-| [[https://github.com/jhawthorn/fzy][fzy]]      | TTY  | 😺     |
-| [[https://github.com/charmbracelet/gum][gum]]      | TTY  | 🤩     |
-| [[http://www.ossp.org/pkg/tool/iselect][iselect]]  | TTY  | 😏     |
-| [[https://github.com/mptre/pick][pick]]     | TTY  | 😃     |
-| [[https://code.reversed.top/user/xaizek/pipedial][pipedial]] | TTY  | 😒     |
-| [[https://github.com/davatorium/rofi][rofi]]     | GUI  | 😄     |
-| [[https://github.com/garybernhardt/selecta][selecta]]  | TTY  | 😉     |
-| [[https://github.com/rcmdnk/sentaku][sentaku]]  | TTY  | 🙄     |
-| [[https://github.com/joshaw/slmenu][slmenu]]   | TTY  | 😞     |
-| [[https://github.com/martanne/vis][vis-menu]] | TTY  | 😢     |
-| [[https://wiki.gnome.org/Projects/Zenity][zenity]]   | GUI  | 🤮     |
+| Tool     | Mode |
+|----------+------|
+| [[https://github.com/chipsenkbeil/choose][choose]]   | GUI  |
+| [[https://tools.suckless.org/dmenu][dmenu]]    | GUI  |
+| [[https://github.com/junegunn/fzf][fzf]]      | TTY  |
+| [[https://github.com/jhawthorn/fzy][fzy]]      | TTY  |
+| [[https://github.com/charmbracelet/gum][gum]]      | TTY  |
+| [[http://www.ossp.org/pkg/tool/iselect][iselect]]  | TTY  |
+| [[https://github.com/mptre/pick][pick]]     | TTY  |
+| [[https://code.reversed.top/user/xaizek/pipedial][pipedial]] | TTY  |
+| [[https://github.com/davatorium/rofi][rofi]]     | GUI  |
+| [[https://github.com/garybernhardt/selecta][selecta]]  | TTY  |
+| [[https://github.com/rcmdnk/sentaku][sentaku]]  | TTY  |
+| [[https://github.com/lotabout/skim][skim]]     | TTY  |
+| [[https://github.com/joshaw/slmenu][slmenu]]   | TTY  |
+| [[https://github.com/martanne/vis][vis-menu]] | TTY  |
+| [[https://wiki.gnome.org/Projects/Zenity][zenity]]   | GUI  |
 
 Many thanks to the authors of the above tools!
 
@@ -55,7 +57,7 @@ Aware of any other line selection tools? Let me know.
 
 #+begin_src bash
 # just download the script to a directory on your path
-curl https://raw.githubusercontent.com/apathor/cz/master/cz -o ~/bin/cz
+curl -sS https://raw.githubusercontent.com/apathor/cz/master/bin/cz -o ~/bin/cz
 
 # and make it executable
 chmod -v +x ~/bin/cz
@@ -148,28 +150,29 @@ Download this [[file:conf/cz.bashrc][example bash config]] then copy it into you
 
 The example config defines key bindings that run cz to provide interactive functionality.
 
-Some of the key bindings use the included function `reval` to do one of the following:
+Some of the key bindings use the included function `rleval` to do one of the following:
   - Insert output from cz into the bash command buffer at cursor point.
   - Replace the word at cursor point in the bash command buffer with output from cz.
   - Run cz to launch an interactive program (like $EDITOR) using some part of the selection.
 
 The example key bindings are as follows:
-
-  - C-x x : Select a cz plugin, run it in quote mode, and insert one or more fields from the selection.
-  - C-x X : Select a cz plugin, run it print mode, and insert the selection.
-  - C-x z : Select a cz plugin, run it in run mode, and insert the output of the command.
-  - C-x Z : Select a cz plguin, run it in simulate mode and insert the command templated with the selection.
-  - C-x r : Select a command from bash history and insert it.
-  - C-x u : Select a unicode character and insert it.
-  - C-x g : Select an uncomitted file in current git repository and insert its path.
-  - C-x G : Select a comitted file in current git repository and insert its path.
-  - C-x d : Using the current word as a directory, replace it with a selected descendant directory.
-  - C-x D : Using the current word as a pattern, replace it with a selected matching descendant directory under $PWD.
-  - C-x f : Using the current word as a directory, replace it with a selected descendant file.
-  - C-x F : Using the current word as a pattern, replace it with a selected matching descendant file under $PWD.
-  - C-x l : Using the current word as a pattern, replace it with a selected matching file from the locate database.
-  - C-x e : Using the current word as a pattern, replace it with the path of a file matching it under $PWD.
-  - C-x E : Using the current word as a pattern, run $EDITOR to open selected file matching it under $PWD.
+| Keys  | Function                                                                                                  |
+|-------+-----------------------------------------------------------------------------------------------------------|
+| C-x x | Select a cz plugin, run it in quote mode, and insert one or more fields from the selection.               |
+| C-x X | Select a cz plugin, run it print mode, and insert the selection.                                          |
+| C-x z | Select a cz plugin, run it in run mode, and insert the output of the command.                             |
+| C-x Z | Select a cz plguin, run it in simulate mode and insert the command templated with the selection.          |
+| C-x r | Select a command from bash history and insert it.                                                         |
+| C-x u | Select a unicode character and insert it.                                                                 |
+| C-x g | Select an uncomitted file in current git repository and insert its path.                                  |
+| C-x G | Select a comitted file in current git repository and insert its path.                                     |
+| C-x d | Using the current word as a directory, replace it with a selected descendant directory.                   |
+| C-x D | Using the current word as a pattern, replace it with a selected matching descendant directory under $PWD. |
+| C-x f | Using the current word as a directory, replace it with a selected descendant file.                        |
+| C-x F | Using the current word as a pattern, replace it with a selected matching descendant file under $PWD.      |
+| C-x l | Using the current word as a pattern, replace it with a selected matching file from the locate database.   |
+| C-x e | Using the current word as a pattern, replace it with the path of a file matching it under $PWD.           |
+| C-x E | Using the current word as a pattern, run $EDITOR to open selected file matching it under $PWD.            |
 
 *** Zsh
 
@@ -182,63 +185,18 @@ The example config defines the same key bindings described in the bash section a
 Download the example i3 config then copy it into your i3 config.
 
 The example config defines the following key bindings:
-
- - Mod-x : Select a cz plugin, run it, and put fields from selected line into a clipboard.
- - Mod-X : Select a cz plugin, run it, and put selected line into a clipboard.
- - Mod-z : Select a cz plugin, run it, and put the command output into a clipboard.
- - Mod-Z : Select a cz plguin, run it in simulate mode, and put the output into a clipboard.
- - Mod-c : Select a command and run it.
- - Mod-C : Select a clipboard and pipe its contents through the selected command.
- - Mod-o : Select a clipboard then select a URL extracted from its contents to open in a browser.
- - Mod-Shift-Space : Select an i3 a tag and jump to the selected window.
- - Mod-Tab : Select an i3 window and jump to it.
- - Mod-Shift-Tab : Select an i3 workspace and switch to it.
-
-** Plugins
-
-Cz considers any command starting with 'cz_' a valid plugin.
-
-Plugins must:
- - Print usage text if the CZ_HELP environment variable is non-empty.
- - Provide some application specific input to cz.
- - Run cz with application specific options (-d, -e, -f, -i) but without setting any of the mode options (-p, -q, -r, -s, -t, -u).
-
-*** Example - bash function
-
-A function like the following could be defined in your bash configuration:
-
-#+begin_src sh
-cz_fruit() {
-  if [ -n "$CZ_HELP" ]; then
-    printf "cz fruit\nSelect a fruit\n" >&2
-    return 0
-  fi
-  cz -e 'printf "Go %s!\n" {0}' \
-    -i <(printf "%s\n" apple banana grapefruit orange)
-}
-
-#+end_src
-
-*** Example - external program
-
-Use your favorite language! Here is an example plugin that lets you select from powers of two.
-
-Put the following in an executable file called 'cz_twos' on your path:
-
-#+begin_src perl
-#!/usr/bin/env perl
-use strict;
-use warnings;
-
-if($ENV{"CZ_HELP"}) {
-  print STDERR "cz twos\nSelect from powers of two.\n";
-  exit 0;
-}
-
-open(my $pipe, "|-", "cz -f 1");
-print $pipe $_ for map { sprintf "%d %d\n", $_, 2 ** $_ } (1..32);
-close($pipe);
-#+end_src
+| Keys            | Function                                                                               |
+|-----------------+----------------------------------------------------------------------------------------|
+| Mod x           | Select a cz plugin, run it, and put fields from selected line into a clipboard.        |
+| Mod X           | Select a cz plugin, run it, and put selected line into a clipboard.                    |
+| Mod z           | Select a cz plugin, run it, and put the command output into a clipboard.               |
+| Mod Z           | Select a cz plguin, run it in simulate mode, and put the output into a clipboard.      |
+| Mod c           | Select a command and run it.                                                           |
+| Mod C           | Select a clipboard and pipe its contents through the selected command.                 |
+| Mod o           | Select a clipboard then select a URL extracted from its contents to open in a browser. |
+| Mod Shift Space | Select an i3 a tag and jump to the selected window.                                    |
+| Mod Tab         | Select an i3 window and jump to it.                                                    |
+| Mod Shift Tab   | Select an i3 workspace and switch to it.                                               |
 
 ** Name
 #+begin_src text
