@@ -715,7 +715,7 @@ EOF
 
 cz() {
     # version
-    local ver="0.9.0"
+    local ver="0.9.1"
     # usage
     local hows="" use=""
     read -r -d '' use <<EOF
@@ -851,7 +851,7 @@ EOF
     local nul=0                          # boolean | whether to read null separated lines
     local clr=0                          # boolean | whether to refresh cached input lines
     # accept options
-    printf "OPTS %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+    # printf "OPTS %s\\n" "$(nnow)" | hep "$CZ_TIMING"
     local opt OPTIND OPTARG
     while getopts ":cd:e:f:ghHi:klmn:opqrstuvwxyz:0" opt; do
         case "$opt" in
@@ -902,7 +902,7 @@ EOF
                 done < <(compgen -c) | sort
                 return 0
                 ;;
-            m) # enabke debugging messages
+            m) # enable debugging messages
                 dbg=1
                 ;;
             n) # select more than one line
@@ -1012,7 +1012,7 @@ EOF
             return 2
         fi
         shift "$word"
-        printf "PLUG %s %s\\n" "$(nnow)" "$plug" | hep "$CZ_TIMING"
+        # printf "PLUG %s %s\\n" "$(nnow)" "$plug" | hep "$CZ_TIMING"
         # run the plugin with override environment variables
         _CZ_DELIM="$dlm" \
                  _CZ_DEBUG="$dbg" \
@@ -1035,11 +1035,14 @@ EOF
         return
     fi
     # cache the selections file for fast access
-    printf "READ %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+    # printf "READ %s\\n" "$(nnow)" | hep "$CZ_TIMING"
     local id="cz_$$_${RANDOM}" sel=""
     if ((nul)); then
         local lines=()
         mapfile -d '' -t lines < "$inp"
+        if ! ((${#lines[@]})); then
+            return 6
+        fi
         sel=$(printf "%q\\n" "${lines[@]}" | hold -f -k -x -n "$id" -)
     elif ! [ -f "$inp" ]; then
         sel=$(hold -f -k -x -n "$id" "$inp")
@@ -1047,7 +1050,7 @@ EOF
         sel="$inp"
     fi
     if ! [ -s "$sel" ]; then
-        printf "Empty selections file.\\n" | hep "$dbg"
+        # printf "Empty selections file.\\n" | hep "$dbg"
         return 6
     fi
     # buffer stdin if reading selections input from another file
@@ -1055,13 +1058,13 @@ EOF
     # optionally require actual input lines
     local stdin=()
     if [[ "$inp" != "/dev/stdin" ]] && ! [ -t 0 ]; then
-        printf "STDIN %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+        # printf "STDIN %s\\n" "$(nnow)" | hep "$CZ_TIMING"
         mapfile -t stdin
         if ((buf)) && ! ((${#stdin})); then return 4; fi
     fi
     # maybe just write selections to stdout
     if [[ "$mode" == "output" ]]; then
-        printf "OUTPUT %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+        # printf "OUTPUT %s\\n" "$(nnow)" | hep "$CZ_TIMING"
         printf "%s\\n" "$(< "$sel")"
         return 0
     fi
@@ -1070,10 +1073,10 @@ EOF
     trap 'hold -d -n ${id}; trap - RETURN SIGINT SIGTERM' RETURN
     # loop for desired number of selections
     local count=0
-    printf "PICK %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+    # printf "PICK %s\\n" "$(nnow)" | hep "$CZ_TIMING"
     while (( num == 0 )) || (( ++count <= num )); do
         # choose a line using a known program
-        printf "? %d/%d %s %s \\n" "$count" "$num" "$app" "$sel" | hep "$dbg"
+        # printf "? %d/%d %s %s \\n" "$count" "$num" "$app" "$sel" | hep "$dbg"
         local out=""
         out=$(case "$app" in
                   choose)
@@ -1145,7 +1148,7 @@ EOF
         if ((nul)); then
             out=$(eval printf "%s" "$out")
         fi
-        printf "> %s\\n" "$out" | hep "$dbg"
+        # printf "> %s\\n" "$out" | hep "$dbg"
         # tokenize selected line for use in templates
         local cmd=""
         local toks=()
@@ -1161,32 +1164,32 @@ EOF
         plan="${plan:-print}"
         mode="${mode:-$plan}"
         # do something with the selection depending on mode
-        printf "MODE %s %s\\n" "$(nnow)" "$mode" | hep "$CZ_TIMING"
+        # printf "MODE %s %s\\n" "$(nnow)" "$mode" | hep "$CZ_TIMING"
         case "${mode}" in
             print)
                 # print selection
-                printf "PRINT %s\\n" "$(nnow)" | hep "$CZ_TIMING"
-                printf "P %s\\n" "$out" | hep "$dbg"
+                # printf "PRINT %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+                # printf "P %s\\n" "$out" | hep "$dbg"
                 printf "%s\\n" "$out"
                 ;;
             quote)
                 # print some fields extracted from the line quoted for use in the shell
-                printf "QUOTE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+                # printf "QUOTE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
                 if ! out="$(nth -q -- "$fld" "${toks[@]}" 2>/dev/null)"; then
                     printf "Failed to render template: %s\\n" "$fld" >&2
                     return 5
                 fi
-                printf "Q %s ==> %s\\n" "$fld" "$out" | hep "$dbg"
+                # printf "Q %s ==> %s\\n" "$fld" "$out" | hep "$dbg"
                 printf "%s\\n" "$out"
                 ;;
             run)
                 # template the command string then run it
-                printf "RUN  %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+                # printf "RUN  %s\\n" "$(nnow)" | hep "$CZ_TIMING"
                 if ! cmd="$(nth -q -- "$tpl" "${toks[@]}" 2>/dev/null)"; then
                     printf "Failed to parse template: %s\\n" "$tpl" >&2
                     return 5
                 fi
-                printf "R %s ==> %s\\n" "$tpl" "$cmd" | hep "$dbg"
+                # printf "R %s ==> %s\\n" "$tpl" "$cmd" | hep "$dbg"
                 unset -v _CZ_DELIM _CZ_FIELDS _CZ_HELP _CZ_MODE _CZ_TEMPLATE HOLD_CLEAR
                 # eval the command maybe passing through stdin or the terminal
                 if ((${#stdin})); then
@@ -1199,37 +1202,37 @@ EOF
                 ;;
             simulate)
                 # render the command string with shell quotes
-                printf "SIMULATE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+                # printf "SIMULATE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
                 if ! cmd="$(nth -q "$tpl" "${toks[@]}")"; then
                     printf "Failed to render template.\\n%s\\n" "$tpl" >&2
                     return 4
                 fi
-                printf "S %s ==> %s\\n" "$tpl" "$cmd" | hep "$dbg"
+                # printf "S %s ==> %s\\n" "$tpl" "$cmd" | hep "$dbg"
                 printf "%s\\n" "$cmd"
                 ;;
             template)
                 # render the command template directly
-                printf "TEMPLATE %s\\n" "$(nnow)" | cz "$CZ_TIMING"
+                # printf "TEMPLATE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
                 if ! cmd="$(nth -p "$tpl" "${toks[@]}")"; then
                     printf "Failed to render template.\\n%s\\n" "$tpl" >&2
                     return 4
                 fi
-                printf "T %s ==> %s\\n" "$tpl" "$cmd" | hep "$dbg"
+                # printf "T %s ==> %s\\n" "$tpl" "$cmd" | hep "$dbg"
                 printf "%s\\n" "$cmd"
                 ;;
             unquote)
                 # print some fields extracted from the line
-                printf "UNQUOTE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+                # printf "UNQUOTE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
                 if ! out="$(nth -p -- "$fld" "${toks[@]}" 2>/dev/null)"; then
                     printf "Failed to render template: %s\\n" "$fld" >&2
                     return 5
                 fi
-                printf "U %s ==> %s\\n" "$fld" "$out" | hep "$dbg"
+                # printf "U %s ==> %s\\n" "$fld" "$out" | hep "$dbg"
                 printf "%s\\n" "$out"
                 ;;
         esac
     done
-    printf "DONE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
+    # printf "DONE %s\\n" "$(nnow)" | hep "$CZ_TIMING"
     return 0
 }
 
@@ -1588,6 +1591,14 @@ EOF
     req asdf sed || return 5
     cz -f 0 -e 'asdf plugin add {0} {1}' \
        -i <(hold -ept 3600 -- asdf plugin list all 2>/dev/null | sed '/HEAD/d;s/*/ /;')
+}
+
+cz_asdf_repo() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz asdf repo
+Select from available asdf repository URLs.
+EOF
+    cz -f 1 -e 'xdg-open {1}' asdf plugin
 }
 
 cz_asdf_shim() {
@@ -2354,7 +2365,8 @@ cz gcloud auth
 Select an available google cloud identity.
 EOF
     req gcloud jq || return 5
-    cz -f 0 -i <(gcloud auth list --format=json | jq -r '.[] | [.account, .status] | @tsv')
+    cz -e 'gcloud config set account {0}'  -f 0 \
+       -i <(gcloud auth list --format=json | jq -r '.[] | [.account, .status] | @tsv')
 }
 
 cz_gcloud_bq_dataset() {
@@ -2507,9 +2519,9 @@ EOF
     req gcloud jq || return 5
     local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
-    cz -f 0 -e "gcloud --project ${proj@Q} --format json compute instance-groups managed describe {1}" \
+    cz -f 0 -e "gcloud --project ${proj@Q} --region {2} --format json compute instance-groups managed describe {1}" \
        -i <(gcloud --project "$proj" --format=json compute instance-groups managed list \
-                | jq -r '.[] | [.id, .name, .creationTimestamp] | @tsv')
+                | jq -r '.[] | [.id, .name, (.region | split("/") | .[-1]), .creationTimestamp] | @tsv')
 }
 
 cz_gcloud_compute_network() {
@@ -2825,10 +2837,9 @@ EOF
 
 _cz_git_config() {
     local name="$1" curr="$2" prev="$3" words=("${@:4}")
-    if (("${#words[@]}" < 2)); then
-        if [[ "$curr" == "${words[0]}" ]]; then
-            compgen -W all global local system worktree -- "$curr"
-        fi
+    printf "+ %s\\n" "$@" >&2
+    if [[ "$curr" == "${words[0]}" ]]; then
+        compgen -W all global local system worktree -- "$curr"
     fi
 }
 
@@ -3195,18 +3206,6 @@ EOF
     cz -d $'\t' -f 3 -i <(isoquery -i 3166-1 | sed ':1;s/\t\t/\t_\t/g;t1;')
 }
 
-unicode_flag() {
-    local code="$1"
-    # cz -o unicode character 'Enclosed Alphanumeric Supplement' | awk -F: '/REGIONAL INDICATOR/{ print $1 }'
-    local ris=(🇦 🇧 🇨 🇩 🇪 🇫 🇬 🇭 🇮 🇯 🇰 🇱 🇲 🇳 🇴 🇵 🇶 🇷 🇸 🇹 🇺 🇻 🇼 🇽 🇾 🇿)
-    local char="" ord=""
-    while read -r -n1 char; do
-        ord=$(LC_CTYPE=C printf '%d' "'$char")
-        if ! ((ord)); then continue; fi
-        printf "%s" "${ris[ord - 65]}"
-    done <<< "$code"
-}
-
 cz_iso_language() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz iso country
@@ -3340,7 +3339,7 @@ EOF
     if ! f=$(hold -fx "${1:--}"); then
         return 4
     fi
-    local y
+    local y=""
     if ! y=$(perl -MYAML -MJSON -E 'say encode_json(Load(do{local $/;<>}))' < "$f"); then
         return 5
     fi
@@ -3881,11 +3880,27 @@ EOF
 
 cz_ruby_gem() {
     { hep "$_CZ_HELP" && return; } <<EOF
-cz ruby gem
-Select an installed ruby gem package by name.
+cz ruby gem [PATTERN]
+Select a remote ruby gem package by name.
+Given a pattern argument query by that regular expression.
 EOF
     req gem ruby || return 5
-    cz -f 0 -e 'gem info {0}' -i <(gem query --local)
+    cz -f 0 -e 'gem install {0}' \
+       -i <(if [ -z "$1" ]; then
+                hold -e -p -t 86400 gem search "."
+            else
+                gem search "$1"
+            fi)
+}
+
+cz_ruby_installed() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz ruby installed [PATTERN]
+Select an installed ruby gem package by name.
+Given a pattern argument query by that regular expression.
+EOF
+    req gem ruby || return 5
+    cz -f 0 -e 'gem info {0}' -i <(gem list "$pat")
 }
 
 cz_screen_session() {
@@ -4299,6 +4314,18 @@ _cz_unicode_character() {
     mapfile -t maybe < <(compgen -W "${blocks[*]@Q}"--- "$curr")
     mapfile -t reply < <(printf "%q\\n" "${maybe[@]}")
     COMPREPLY=("${reply[@]}")
+}
+
+unicode_flag() {
+    local code="$1"
+    # cz -o unicode character 'Enclosed Alphanumeric Supplement' | awk -F: '/REGIONAL INDICATOR/{ print $1 }'
+    local ris=(🇦 🇧 🇨 🇩 🇪 🇫 🇬 🇭 🇮 🇯 🇰 🇱 🇲 🇳 🇴 🇵 🇶 🇷 🇸 🇹 🇺 🇻 🇼 🇽 🇾 🇿)
+    local char="" ord=""
+    while read -r -n1 char; do
+        ord=$(LC_CTYPE=C printf '%d' "'$char")
+        if ! ((ord)); then continue; fi
+        printf "%s" "${ris[ord - 65]}"
+    done <<< "$code"
 }
 
 cz_unicode_flag() {
