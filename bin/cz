@@ -648,18 +648,17 @@ EXAMPLES
     # tokenize current readline line
     local toks=()
     read -r -a toks <<< "$line"
-    # determine word at point
+    # determine the word at cursor point
     local beg=0 end=0 ins=0 word=""
     if [[ "${line:$pt:1}" == ' ' ]]; then
-        # insert a word if point is on a space
+        # single point if cursor is on a space
         beg="$pt"
         end="$pt"
         ins=1
     else
-        # replace word at point if on a non-space character
-        local pos=0
         # find the beginning of the word
         beg=0
+        local pos=0
         for ((pos="$pt"; pos>=0; pos--)); do
             if [[ "${line:$pos:1}" == ' ' ]]; then
                 beg=$((pos + 1))
@@ -728,7 +727,7 @@ EXAMPLES
 
 cz() {
     # version
-    local ver="0.9.2"
+    local ver="0.9.3"
     # usage
     local hows="" use=""
     local use="cz [OPTIONS] [PLUGIN...] [ARGS ...] [< LINES]
@@ -798,7 +797,9 @@ ENVIRONMENT
  CZ_BINS        : A list of line selection tools in order of preference.
  CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB).
  CZ_DMENU_FONT  : The font to use for dmenu.
- CZ_ROFI_THEME  : The theme to use for rofi."
+ CZ_ROFI_THEME  : The theme to use for rofi.
+ CZ_PROMPT      : Prompt string to use for all prompts.
+ CZ_NO_PROMPT   : If non-empty do not set a prompt."
     # example commands
     local hows=()
     mapfile -t hows <<EOF
@@ -817,6 +818,7 @@ Compose plugins to get the contents of an element from a JSON file.:$ cz -e 'cz 
 Compose plugins to get any file under an apparix bookmarked directory.:$ cz -e 'cz find file {1}' apparix
 Find a file then open it for editing:$ find . -type f -print0 | cz -0 -r -e 'vim {0}'
 Consult the I Ching.:$ cz -u -w -f0,2 -n 10 unicode character 'Yijing Hexagram Symbols'
+Draw five cards.:$ cz -wn5 unicode card
 EOF
     # supported tools
     read -r -d '' exes <<EOF
@@ -832,7 +834,6 @@ rofi      https://github.com/davatorium/rofi
 selecta   https://github.com/garybernhardt/selecta
 sentaku   https://github.com/rcmdnk/sentaku
 sk        https://github.com/lotabout/skim
-slmenu    https://bitbucket.org/rafaelgg/slmenu
 vis-menu  https://github.com/martanne/vis
 zenity    https://help.gnome.org/users/zenity/stable/
 EOF
@@ -843,67 +844,62 @@ EOF
     # here are the supporterd line selection tools
     declare -A gbins tbins
     while read -r -d ' ' x; do gbins["$x"]=1; done <<< "choose dmenu rofi zenity "
-    while read -r -d ' ' x; do tbins["$x"]=1; done <<< "fzf fzy pick gum pipedial selecta sentaku sk iselect slmenu vis-menu "
+    while read -r -d ' ' x; do tbins["$x"]=1; done <<< "fzf fzy pick gum pipedial selecta sentaku sk iselect vis-menu "
     # determine type of interface for line selection tool
     local app="" gfx=""
     IFS=: read -r gfx app _ <<< "${CZ_GUI:-2}"
     if [ -z "$DISPLAY" ]; then gfx=0; fi
     # set options from the environment
-    local tpl="${_CZ_TEMPLATE}"          # string  | command template
-    local fld="${_CZ_FIELDS}"            # string  | field selection
-    local mode="${_CZ_MODE}"             # string  | indicator for program mode
-    local num="${_CZ_NUMBER:-1}"         # integer | number of lines to select
-    local help="${_CZ_HELP}"             # string  | indicator for help requested
-    local dlm="${_CZ_DELIM:-$IFS}"       # string  | delimeter to split selected line
-    local dbg="${CZ_DEBUG:-$_CZ_DEBUG}"  # boolean | whether or not write debug logs
-    local tmg="${CZ_TIMING}"             # boolean | whether or not to write timing logs
-    local pat="${_CZ_PATTERN}"           # string  | pattern with which to filter available lines
+    local template="${_CZ_TEMPLATE}"         # string  | command template
+    local tfields="${_CZ_FIELDS}"             # string  | field selection
+    local mode="${_CZ_MODE}"                 # string  | indicator for program mode
+    local num="${_CZ_NUMBER:-1}"             # integer | number of lines to select
+    local help="${_CZ_HELP}"                 # string  | indicator for help requested
+    local delim="${_CZ_DELIM:-$IFS}"         # string  | delimeter to split selected line
+    local debug="${CZ_DEBUG}"                # boolean | if non-empty write debug logs
+    local timing="${CZ_TIMING}"              # boolean | if non-empty write timing logs
+    local pattern="${_CZ_PATTERN}"           # string  | pattern with which to filter available lines
+    local prompt="${CZ_PROMPT:-$_CZ_PROMPT}" # string  | prompt for selection tool to display if possible
+    local noprompt="${CZ_NO_PROMPT}"         # boolean | if non-empty set no prompt
+    local bins="${CZ_BINS}"
     # set option defaults
-    local inp="/dev/stdin"               # string  | file from which to select a line
-    local buf=0                          # boolean | require buffered stdin for command
-    local plan=""                        # string  | program mode implied by another option
-    local nul=0                          # boolean | whether to read null separated lines
-    local clr=0                          # boolean | whether to refresh cached input lines
+    local input="/dev/stdin"                 # string  | file from which to select a line
+    local buffer=0                           # boolean | require buffered stdin for command
+    local plan=""                            # string  | program mode implied by another option
+    local null=0                             # boolean | whether to read null separated lines
+    local clear=0                            # boolean | whether to refresh cached input lines
     # accept options
-    hap "$tmg" "START\\n"
+    hap "$timing" "START\\n"
     local opt OPTIND OPTARG
-    while getopts ":a:bcd:e:f:hHi:klmn:opqrstuvwxyz:0" opt; do
+    while getopts ":a:bcd:e:f:hi:klmn:opqrstuvwxyz:HP:0" opt; do
         case "$opt" in
             a) # filter pattern
-                pat="$OPTARG"
+                pattern="$OPTARG"
                 ;;
             b) # enable buffered stdin for command
-                buf=1
+                buffer=1
                 ;;
             c) # clear hold caches
-                clr=1
+                clear=1
                 ;;
             d) # set delimeter string
-                dlm="$OPTARG"
+                delim="$OPTARG"
                 ;;
             e) # set template to format command
-                tpl="${tpl:-$OPTARG}"
+                template="${template:-$OPTARG}"
                 plan='run'
                 ;;
             f) # set fields to be extracted
-                fld="${fld:-$OPTARG}"
+                tfields="${tfields:-$OPTARG}"
                 plan="${plan:-quote}"
                 ;;
             h) # enable help mode
                 help=1
                 ;;
-            H) # list usage examples
-                local ind
-                for ((ind=0; ind < "${#hows[@]}"; ind++)); do
-                    IFS=: read -r des exp <<< "${hows[$ind]}"
-                    printf "%s\\n%s\\n\\n" "$des" "$exp"
-                done
-                return 0
-                ;;
             i) # set input file from which to read selections
-                inp="$OPTARG"
-                if ! [ -r "$inp" ]; then
-                    printf "Input file is unreadable: -i %s\\n" "${inp@Q}" >&2
+                input="$OPTARG"
+                if ! [ -r "$input" ]; then
+                    printf "Input file is unreadable: -i %s\\n" "${input@Q}" >&2
                     return 2
                 fi
                 ;;
@@ -920,7 +916,7 @@ EOF
                 return 0
                 ;;
             m) # enable debugging messages
-                dbg=1
+                debug=1
                 ;;
             n) # select more than one line
                 num="$OPTARG"
@@ -970,8 +966,19 @@ EOF
                     return 2
                 fi
                 ;;
+            H) # list usage examples
+                local ind
+                for ((ind=0; ind < "${#hows[@]}"; ind++)); do
+                    IFS=: read -r des exp <<< "${hows[$ind]}"
+                    printf "%s\\n%s\\n\\n" "$des" "$exp"
+                done
+                return 0
+                ;;
+            P) # set a prompt for the line selection tool
+                prompt="$OPTARG"
+                ;;
             0) # handle null separated input
-                nul=1
+                null=1
                 ;;
             :) # missing argument
                 printf "Missing argument for option -%s\\n%s\\n" "$OPTARG" "$use" >&2
@@ -985,30 +992,36 @@ EOF
     done
     shift $((OPTIND - 1))
     # determine an available line selection tool
-    hap "${tmg}" "TOOL\\n"
-    local got=""
     if [ -z "$app" ]; then
+        hap "${timing}" "TOOL\\n"
+        # given lists of preferred tools and known tools
+        local prefs=()
+        IFS=' ' read -r -a prefs <<< "$bins"
         local tools=("${!gbins[@]}" "${!tbins[@]}")
-        # filter preferred tools by the desired interface
-        local want=()
-        while read -d ' ' -r pref; do
-            case "$gfx" in
-                0) if ! (( tbins["$pref"] )); then continue; fi ;;
-                1) if ! (( gbins["$pref"] )); then continue; fi ;;
-            esac
-            # printf "%s\n" "${pref}"
-            want+=("$pref")
-        done <<< "${CZ_BINS} ${tools[*]}"
-        # use the first available tool
-        for app in "${want[@]}"; do
-            if type "$app" &>/dev/null; then
-                got="$app"
-                break
+        # determine the first available tool meeting criteria
+        for app in "${prefs[@]}" "${tools[@]}"; do
+            # filter by availability
+            if ! type "$app" &>/dev/null; then
+                continue
             fi
-        done
-        app="$got"
+            # filter by desired interface
+            case "$gfx" in
+                0) # TTY
+                    if ! (( tbins["$app"] )); then
+                        continue
+                    fi
+                    ;;
+                1) # GUI
+                    if ! (( gbins["$app"] )); then
+                        continue
+                    fi
+                    ;;
+            esac
+            # first one found
+            break
+            done
         # exit if no appropriate tool was found
-        if [ -z "$got" ]; then
+        if [ -z "$app" ]; then
             printf "No line selection tools found!\\nTry installing one of these:\\n" >&2
             printf "%s\\n" "${tools[@]}" | sort >&2
             return 5
@@ -1030,64 +1043,74 @@ EOF
             return 2
         fi
         shift "$word"
-        hap "$dbg" "+ %s\\n" "$plug"
+        # maybe set prompt default
+        if ((noprompt)); then
+            prompt=""
+        else
+            prompt="${prompt:-$plug}"
+        fi
+        hap "$debug" "+ %s\\n" "$plug"
         # run the plugin with override environment variables
-        _CZ_DELIM="$dlm" \
-                 _CZ_DEBUG="$dbg" \
-                 _CZ_FIELDS="$fld" \
+        _CZ_DELIM="$delim" \
+                 CZ_DEBUG="$debug" \
+                 _CZ_FIELDS="$tfields" \
                  CZ_GUI="${gfx}:${app}" \
                  _CZ_HELP="$help" \
                  _CZ_MODE="$mode" \
                  _CZ_NUMBER="$num" \
-                 _CZ_PATTERN="$pat" \
-                 _CZ_TEMPLATE="$tpl" \
+                 _CZ_PATTERN="$pattern" \
+                 _CZ_TEMPLATE="$template" \
+                 _CZ_PROMPT="$prompt" \
                  CZ_DMENU_COLOR=$(indirect "${plug^^}_DMENU_COLOR" "$CZ_DMENU_COLOR") \
                  CZ_DMENU_FONT=$(indirect "${plug^^}_DMENU_FONT" "$CZ_DMENU_FONT") \
                  CZ_ROFI_THEME=$(indirect "${plug^^}_ROFI_THEME" "$CZ_ROFI_THEME") \
-                 HOLD_CLEAR="$clr" \
+                 HOLD_CLEAR="$clear" \
                  "$plug" "$@"
         return "$?"
     fi
     # print usage and exit if help was requested
     if [ -n "$help" ]; then
-        printf "%s\\n" "$use" >&2
+        printf "%s\\n" "$use"
         return
     fi
     # cache the selections file for fast access
-    hap "$tmg" "READ %s\\n" "$inp"
+    hap "$timing" "READ %s\\n" "$input"
     local id="cz_$$_${RANDOM}" sel=""
-    if ((nul)); then
+    if (( null )); then
         local lines=()
-        mapfile -d '' -t lines < "$inp"
+        mapfile -d '' -t lines < "$input"
         if ! ((${#lines[@]})); then
             return 6
         fi
         sel=$(printf "%q\\n" "${lines[@]}" | hold -f -k -x -n "$id" -)
-    elif ! [ -f "$inp" ]; then
-        sel=$(hold -f -k -x -n "$id" "$inp")
+    elif ! [ -f "$input" ]; then
+        sel=$(hold -f -k -x -n "$id" "$input")
     else
-        sel="$inp"
+        sel="$input"
     fi
     if ! [ -s "$sel" ]; then
         return 6
     fi
     # maybe filter selections file
-    if [ -n "$pat" ]; then
-        hap "$dbg" "A %s\\n" "$pat"
-        sel=$(grep -- "$pat" "$sel" | hold -x -n "$id" -f -)
+    if [ -n "$pattern" ]; then
+        hap "$debug" "A %s\\n" "$pattern"
+        sel=$(grep -- "$pattern" "$sel" | hold -x -n "$id" -f -)
     fi
     # buffer stdin if reading selections input from another file
     # this is needed to pass pipe input to plugin commands
-    # optionally require actual input lines
     local stdin=()
-    if [[ "$inp" != "/dev/stdin" ]] && ! [ -t 0 ]; then
-        hap "$tmg" "STDIN\\n"
+    if [[ "$input" != "/dev/stdin" ]] && ! [ -t 0 ]; then
+        hap "$timing" "STDIN\\n"
         mapfile -t stdin < /dev/stdin
-        if ((buf)) && ! ((${#stdin})); then return 5; fi
+        # optionally require actual input lines
+        if (( buffer )) && ! ((${#stdin})); then
+            printf "%s\\n" "Expected to read from stdin." >&2
+            return 5
+        fi
     fi
     # maybe just write selections to stdout
     if [[ "$mode" == "output" ]]; then
-        hap "$tmg" "OUTPUT\\n"
+        hap "$timing" "OUTPUT\\n"
         printf "%s\\n" "$(< "$sel")"
         return 0
     fi
@@ -1095,11 +1118,11 @@ EOF
     trap 'return 1' SIGINT SIGTERM
     trap 'hold -d -n ${id}; trap - RETURN SIGINT SIGTERM' RETURN
     # loop for desired number of selections
-    local count=0
-    hap "$tmg" "PICK\\n"
+    local count=0 failed=0
+    hap "$timing" "PICK\\n"
     while (( num == 0 )) || (( ++count <= num )); do
         # choose a line using a known program
-        hap "$dbg" "? %d/%d %s %s \\n" "$count" "$num" "$app" "$sel"
+        hap "$debug" "? %d/%d %s %s \\n" "$count" "$num" "$app" "$sel"
         local out=""
         out=$(case "$app" in
                   choose)
@@ -1109,16 +1132,16 @@ EOF
                       local color="${CZ_DMENU_COLOR:-black:gray:white:black}"
                       local font="${CZ_DMENU_FONT}"
                       IFS=':' read -r nf nb sf sb <<< "$color"
-                      dmenu -i -l 20 -fn "$font" -nf "$nf" -nb "$nb" -sf "$sf" -sb "$sb"
+                      dmenu -i -l 20 -fn "$font" -nf "$nf" -nb "$nb" -sf "$sf" -sb "$sb" -p "$prompt"
                       ;;
                   fzf)
-                      fzf
+                      fzf --prompt "${prompt}> "
                       ;;
                   fzy)
-                      fzy
+                      fzy --prompt "${prompt}> "
                       ;;
                   gum)
-                      gum filter
+                      gum filter --prompt "${prompt}> "
                       ;;
                   iselect)
                       iselect -a
@@ -1131,10 +1154,10 @@ EOF
                       ;;
                   rofi)
                       local theme="${CZ_ROFI_THEME:-Paper}"
-                      rofi -theme "$theme" -i -dmenu -p ""
+                      rofi -theme "$theme" -i -dmenu -p "$prompt"
                       ;;
                   pipedial)
-                      pipedial
+                      pipedial -t "$prompt"
                       ;;
                   selecta)
                       selecta --height=full
@@ -1143,16 +1166,13 @@ EOF
                       sentaku -s $'\n' | head -n 1
                       ;;
                   sk)
-                      sk
-                      ;;
-                  slmenu)
-                      slmenu -i -l 30
+                      sk --prompt "${prompt}> "
                       ;;
                   vis-menu)
-                      vis-menu -i -l 30
+                      vis-menu -i -l 30 -p "$prompt"
                       ;;
                   zenity)
-                      zenity --width=640 --height=480 --list --column=cz
+                      zenity --width=640 --height=480 --list --column=cz --text="$prompt" 2>/dev/null
                       ;;
                   chuz)
                       chuz
@@ -1162,99 +1182,115 @@ EOF
                       return 2
                       ;;
               esac < "$sel"
-           ) || return 4
+           )
         # require that selector succeeded and got a line
         if [ -z "$out" ]; then
-            return 4
+            (( failed++ ))
+            continue
         fi
         # expand shell quoted line
-        if ((nul)); then
+        if (( null )); then
             out=$(eval printf "%s" "$out")
         fi
-        hap "$dbg" "> %s\\n" "$out"
+        hap "$debug" "> %s\\n" "$out"
         # tokenize selected line for use in templates
         local cmd=""
         local toks=()
-        IFS="$dlm" read -r -a toks <<< "$out"
+        IFS="$delim" read -r -a toks <<< "$out"
         # set harmless defaults for template arguments
-        tpl="${tpl:-echo {0:\}}"
-        fld="${fld:-0:}"
+        template="${template:-echo {0:\}}"
+        tfields="${tfields:-0:}"
         # assume field templates with no variables are simple variables
-        if ! [[ "$fld" =~ \{.*\} ]]; then
-            fld="{${fld}}"
+        if ! [[ "$tfields" =~ \{.*\} ]]; then
+            tfields="{${tfields}}"
         fi
         # the program mode might have been implied by other options
         plan="${plan:-print}"
         mode="${mode:-$plan}"
         # do something with the selection depending on mode
-        hap "$tmg" "MODE %s\\n" "$mode"
+        hap "$timing" "MODE %s\\n" "$mode"
         case "${mode}" in
             print)
                 # print selection
-                hap "${tmg}${dbg}" "P %s\\n" "$out"
+                hap "${timing}${debug}" "P %s\\n" "$out"
                 printf "%s\\n" "$out"
                 ;;
             quote)
                 # print some fields extracted from the line quoted for use in the shell
-                hap "${tmg}${dbg}" "F %s\\n" "$fld"
-                if ! out="$(nth -q -- "$fld" "${toks[@]}" 2>/dev/null)"; then
-                    printf "Failed to render template: %s\\n" "$fld" >&2
-                    return 5
+                hap "${timing}${debug}" "F %s\\n" "$tfields"
+                if ! out="$(nth -q -- "$tfields" "${toks[@]}" 2>/dev/null)"; then
+                    (( failed++ ))
+                    printf "Failed to render template: %s\\n" "$tfields" >&2
+                    continue
                 fi
-                hap "$dbg" "Q %s\\n" "$out"
+                hap "$debug" "Q %s\\n" "$out"
                 printf "%s\\n" "$out"
                 ;;
             run)
                 # template the command string then run it
-                hap "${tmg}${dbg}" "E %s\\n" "$tpl"
-                if ! cmd="$(nth -q -- "$tpl" "${toks[@]}" 2>/dev/null)"; then
-                    printf "Failed to parse template: %s\\n" "$tpl" >&2
-                    return 5
+                hap "${timing}${debug}" "E %s\\n" "$template"
+                if ! cmd="$(nth -q -- "$template" "${toks[@]}" 2>/dev/null)"; then
+                    (( failed++ ))
+                    printf "Failed to parse template: %s\\n" "$template" >&2
+                    continue
                 fi
-                hap "$dbg" "R %s\\n" "$cmd"
-                unset -v _CZ_DELIM _CZ_FIELDS _CZ_HELP _CZ_MODE _CZ_TEMPLATE HOLD_CLEAR
+                hap "$debug" "R %s\\n" "$cmd"
+                unset -v _CZ_DELIM _CZ_FIELDS _CZ_HELP _CZ_MODE _CZ_PROMPT _CZ_TEMPLATE HOLD_CLEAR
                 # eval the command maybe passing through stdin or the terminal
                 if ((${#stdin})); then
-                    ( CZ_GUI="${gfx}:${app}" eval "$cmd" < <(printf "%s\\n" "${stdin[@]}") & wait )
+                    ( CZ_GUI="${gfx}:${app}" eval "$cmd" < <(printf "%s\\n" "${stdin[@]}") & wait "$!" )
                 elif [ -n "$PS1" ]; then
-                    ( CZ_GUI="${gfx}:${app}" eval "$cmd" < /dev/tty & wait)
+                    ( CZ_GUI="${gfx}:${app}" eval "$cmd" < /dev/tty & wait "$!" )
                 else
-                    ( CZ_GUI="${gfx}:${app}" eval "$cmd" & wait )
+                    ( CZ_GUI="${gfx}:${app}" eval "$cmd" & wait "$!" )
+                fi
+                # mark failed exit status
+                local ret="$?"
+                if (( ret )); then
+                    (( failed++ ))
                 fi
                 ;;
             simulate)
                 # render the command string with shell quotes
-                hap "${tmg}${dbg}" "$dbg" "E %s\\n" "$tpl"
-                if ! cmd="$(nth -q "$tpl" "${toks[@]}")"; then
-                    printf "Failed to render template.\\n%s\\n" "$tpl" >&2
-                    return 4
+                hap "${timing}${debug}" "$debug" "E %s\\n" "$template"
+                if ! cmd="$(nth -q "$template" "${toks[@]}")"; then
+                    (( failed++ ))
+                    printf "Failed to render template.\\n%s\\n" "$template" >&2
+                    continue
                 fi
-                hap "$dbg" "S %s\\n" "$cmd"
+                hap "$debug" "S %s\\n" "$cmd"
                 printf "%s\\n" "$cmd"
                 ;;
             template)
                 # render the command template directly
-                hap "${tmg}${dbg}" "E %s\\n" "$tpl"
-                if ! cmd="$(nth -p "$tpl" "${toks[@]}")"; then
-                    printf "Failed to render template.\\n%s\\n" "$tpl" >&2
-                    return 4
+                hap "${timing}${debug}" "E %s\\n" "$template"
+                if ! cmd="$(nth -p "$template" "${toks[@]}")"; then
+                    (( failed++ ))
+                    printf "Failed to render template.\\n%s\\n" "$template" >&2
+                    continue
                 fi
                 hap "T %s\\n" "$cmd"
                 printf "%s\\n" "$cmd"
                 ;;
             unquote)
                 # print some fields extracted from the line
-                hap "${tmg}${dbg}" "F %s\\n" "$fld"
-                if ! out="$(nth -p -- "$fld" "${toks[@]}" 2>/dev/null)"; then
-                    printf "Failed to render template: %s\\n" "$fld" >&2
-                    return 5
+                hap "${timing}${debug}" "F %s\\n" "$tfields"
+                if ! out="$(nth -p -- "$tfields" "${toks[@]}" 2>/dev/null)"; then
+                    (( failed++ ))
+                    printf "Failed to render template: %s\\n" "$tfields" >&2
+                    continue
                 fi
-                hap "$dbg" "U %s\\n" "$out"
+                hap "$debug" "U %s\\n" "$out"
                 printf "%s\\n" "$out"
                 ;;
         esac
     done
-    hap "$tmg" "DONE %s\\n"
+    # report any failed selections
+    if (( failed )); then
+        hap "$debug" "FAILURE %s / %s\\n" "$failed" "$num"
+        return 1
+    fi
+    hap "$debug" "SUCCESS\\n"
     return 0
 }
 
@@ -1268,7 +1304,7 @@ function _cz() {
     # cz has some options
     local opt=""
     declare -A opts
-    for opt in -{a,b,c,d,e,f,h,H,i,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,0}; do
+    for opt in -{a,b,c,d,e,f,h,i,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,H,P,0}; do
         opts["$opt"]=1
     done
     # current and previous words are given
@@ -1301,7 +1337,7 @@ function _cz() {
         return
     fi
     # maybe the previous word is an option that expects an argument
-    if [[ "$prev" =~ ^-[adefinz]$ ]]; then
+    if [[ "$prev" =~ ^-[adefinzP]$ ]]; then
         case "$prev" in
             -a) # grep pattern
                 reply=("'.*'")
@@ -1309,7 +1345,7 @@ function _cz() {
             -d) # delimiter
                 reply=();
                 ;;
-            -E) # command template
+            -e) # command template
                 mapfile -t reply < <(compgen -c -- "$curr")
                 ;;
             -f) # field selector
@@ -1324,6 +1360,9 @@ function _cz() {
                 ;;
             -z) # selection tool
                 mapfile -t reply < <(compgen -W "${tools[*]%% *}"  -- "$curr")
+                ;;
+            -P) # prompt
+                reply=("prompt")
                 ;;
         esac
         COMPREPLY=("${reply[@]}")
@@ -1420,7 +1459,7 @@ EOF
     shift $((OPTIND - 1))
     local prefix="$1"
     shift
-    cz -f 0 -e "cz ${mode} {0} ${*@Q}" -i <(compgen -W "$(cz -l)" -- "$prefix")
+    cz -f 0 -P "cz_meta ${mode}" -e "cz ${mode} {0} ${*@Q}" -i <(compgen -W "$(cz -l)" -- "$prefix")
 }
 
 _cz_meta() {
@@ -1839,9 +1878,12 @@ EOF
     done <<EOF
 xdg-open
 chromium
+chromium --incognito
 elinks
 firefox
+firefox --private-window
 google-chrome
+google-chrome --incognito
 links
 links2
 lynx
@@ -3702,7 +3744,6 @@ EOF
     cz -d $'\t' -e 'xdg-open {5}' -f 4 -i "$cards"
 }
 
-
 cz_mtg_card() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz mtg card
@@ -4329,7 +4370,7 @@ EOF
     local dir="${1:-.}" filter=""
     read -r -d '' filter <<EOF
 .module_calls | to_entries[]
-  | ["module\\(.key)",
+  | ["module.\\(.key)",
      .value.source,
      .value.pos.filename,
      .value.pos.line] | @tsv
@@ -4504,7 +4545,7 @@ EOF
                    || hold -f -x \
                            <(insulate ^_CZ_ cz -o unicode character 'Playing Cards' \
                                  | grep OF | grep -v KNIGHT))
-    cz -f 0 -d : -i "$cardfile"
+    cz -e "printf \"%s \" \$'\\U{1@C}'" -f 0 -d : -i "$cardfile"
 }
 
 cz_unicode_character() {
@@ -4518,7 +4559,7 @@ EOF
     if (($#)); then
         parts=("$@")
     else
-        parts+=("$(_CZ_MODE="" _CZ_FIELDS="" cz -p unicode block)")
+        parts+=("$(insulate ^_CZ_ cz -p unicode block)")
     fi
     if [ -z "${parts[*]}" ]; then return 2; fi
     read -d '' -r util <<EOF
@@ -4537,7 +4578,7 @@ for (@ARGV) {
     }
 }
 EOF
-    cz -d ':' -e "printf \$'\\U{1@C}'" -f 0  \
+    cz -d ':' -e "printf \"%s \" \$'\\U{1@C}'" -f 0  \
        -i <(perl -E "$util" "${parts[@]}")
 }
 
@@ -4623,7 +4664,7 @@ Transport and Map Symbols
 Yijing Hexagram Symbols
 EOF
 
-    cz -d ':' -e "printf \$'\\U{1@C}'" -f 0 -i \
+    cz -d ':' -e "printf \"%s \" \$'\\U{1@C}'" -f 0 -i \
        <(hold -g -p -t 604800 || \
              hold -fpx <(insulate ^_CZ_ cz -o unicode character "${blocks[@]}"))
 }
