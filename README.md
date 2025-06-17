@@ -184,8 +184,8 @@ follows:
 | C-x Z | Select a cz plguin, run it in simulate mode and insert the command templated with the selection.          |
 | C-x r | Select a command from bash history and insert it.                                                         |
 | C-x u | Select a unicode character and insert it.                                                                 |
-| C-x g | Select an uncomitted file in current git repository and insert its path.                                  |
-| C-x G | Select a comitted file in current git repository and insert its path.                                     |
+| C-x g | Select an uncommitted file in current git repository and insert its path.                                  |
+| C-x G | Select a committed file in current git repository and insert its path.                                     |
 | C-x d | Using the current word as a directory, replace it with a selected descendant directory.                   |
 | C-x D | Using the current word as a pattern, replace it with a selected matching descendant directory under $PWD. |
 | C-x f | Using the current word as a directory, replace it with a selected descendant file.                        |
