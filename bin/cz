@@ -10,7 +10,8 @@
 #  - AWS/s3 plugins
 #  - I8n?
 #  - Function to accept only the given options from given arguments: mapfile -t opts < <(cleanopts "a:bcd:" "$@")
-#  - Unique selection for multi-selects
+#  - Unique item selection for multi-selects
+#  - tool support: bemenu
 
 if (("${BASH_VERSINFO[0]}" < 4)); then
     printf '%s1q\n' "$0 requires bash 4!" >&2
@@ -63,6 +64,35 @@ Interactively select one line from input."
     printf "%s\\n" "${lines[$sel]}"
 }
 
+hap() {
+    local use="hap TOGGLE [FORMAT] [VARS...]
+Print formated text to stderr if the first argument is non-empty, otherwise fail.
+Use this function to optionally print debugging text in other functions.
+For example: hap \"\$DEBUG\" \"did the thing: %s\" \"\$thing\""
+    # no real options
+    local opt OPTIND OPTARG
+    while getopts ":h" opt; do
+        case "$opt" in
+            *)
+                printf "%s\\n" "$use" >&2
+                return 1
+                ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    # conditionally print formatted text to stderr
+    if [ -n "$1" ]; then
+        local res=""
+        # shellcheck disable=SC2059
+        if ! res=$(printf -- "$2" "${@:3}"); then
+            return 2
+        fi
+        printf -- "%s %s %s\\n" "$$" "$(nnow)" "$res" >&2
+    else
+        return 1
+    fi
+}
+
 hep() {
     local use="hep TOGGLE < INPUT > OUTPUT
 Print input text if the first argument is non-empty, otherwise fail.
@@ -88,45 +118,16 @@ For example: { hep \"\$HELP_TOGGLE\" && return; } <<<EOF ...
     fi
 }
 
-hap() {
-    local use="hap TOGGLE [FORMAT] [VARS...]
-Print formated text to stderr if the first argument is non-empty, otherwise fail.
-Use this function to optionally print debugging text in other functions.
-For example: hap \"\$DEBUG\" \"did the thing: %s\" \"\$thing\""
-    # no real options
-    local opt OPTIND OPTARG
-    while getopts ":h" opt; do
-        case "$opt" in
-            *)
-                printf "%s\\n" "$use" >&2
-                return 1
-                ;;
-        esac
-    done
-    shift $((OPTIND - 1))
-    # conditionally print formatted text to stderr
-    if [ -n "$1" ]; then
-        local res=""
-        # shellcheck disable=SC2059
-        if ! res=$(printf -- "$2" "${@:3}"); then
-            return 2
-        fi
-        printf -- "%s %s\\n" "$(nnow)" "$res" >&2
-    else
-        return 1
-    fi
-}
-
 hold() {
     local use="hold [OPTIONS] [MODE] [ARGUMENTS]
-Cache some data and print the name of the cache file.
 Speed up your pipelines with caching!
+Cache some data and print the name of the cache file.
 
 MODE
  -e         : Arguments are evaluated as a command and the output is cached.
  -f         : Arguments are considered files and their content is cached.
  -g         : Ignore arguments and only retreive cached content.
- -d         : Ignore arguments and remove all cached files.
+ -d         : Ignore arguments and remove any cache files.
 
 OPTIONS
  -k         : Do not clear old cached files.
@@ -155,8 +156,8 @@ EXAMPLES
  Accept a file argument or stdin in one command.
   $ input=\$(hold -f -x -n qux \"\${1:--}\")
  Flush all cache files with the given name.
-  $ hold -d -n plugh"
-    # help out
+  $ hold -c -n plugh"
+    # print help if no arguments are given
     if (( $# == 0 )); then
         printf "Command arguments required.\\n%s\\n" "$use" >&2
         return 1
@@ -167,7 +168,7 @@ EXAMPLES
     local name="${FUNCNAME[1]:-hold}" # string cache name
     local expire=0                    # integer seconds to expire cache
     local keep=0                      # boolean to not clear expired cache files
-    local new="${HOLD_CLEAR:-0}"      # boolean to ignore cache
+    local clear="${HOLD_CLEAR:-0}"    # boolean to clear cache files
     local mode='run'                  # program mode: run/file/load/flush
     local out='name'                  # output mode: name/content/quiet
     local msg=""                      # string spinner message
@@ -177,6 +178,7 @@ EXAMPLES
         case "$opt" in
             d)  # flush cache
                 mode='flush'
+                clear=1
                 ;;
             e) # command input mode
                 mode='run'
@@ -218,7 +220,7 @@ EXAMPLES
                 out='quiet'
                 ;;
             x) # force fresh cache
-                new=1
+                clear=1
                 ;;
             h) # help
                 printf "%s\\n" "$use" >&2
@@ -245,18 +247,13 @@ EXAMPLES
         if ! [ -f "$file" ]; then
             continue
         fi
-        # in flush mode remove each cached file
-        if [[ "$mode" == 'flush' ]]; then
-            command rm "$file"
-            continue
-        fi
         # get timestamp component of file name
         IFS=. read -r _ ts <<< "${file##*/}"
         if ! [[ "$ts" =~ ^[0-9]+$ ]]; then
             continue
         fi
         # remove files older than the expiration time
-        if ! (( keep )) && ( (( new )) || (( expire )) && (( now - expire > ts )) ); then
+        if ((clear)) || ( ! ((keep)) && ((expire)) && ((now - expire > ts)) ); then
             command rm "$file"
             continue
         fi
@@ -270,7 +267,7 @@ EXAMPLES
     fi
     # check cache
     local cache=""
-    if ! (( new )) && (( ${#hot} )); then
+    if ! (( clear )) && (( ${#hot} )); then
         # use most recent cached file
         cache="${hot[-1]}"
     else
@@ -285,7 +282,7 @@ EXAMPLES
                 if ((spin)); then
                     (
                         eval "${*@Q}" > "$cache" &
-                        spin -c 3 -p "$!" "$msg"
+                        spin -p "$!" "$msg" &
                         wait
                     )
                 else
@@ -310,7 +307,7 @@ EXAMPLES
                 if ((spin)); then
                     (
                         cat -- "$*" > "$cache" &
-                        spin -c 1 -p "$!" "$msg"
+                        spin -p "$!" "$msg" &
                         wait
                     )
                 else
@@ -320,7 +317,7 @@ EXAMPLES
             load) # cache miss!
                 return 4
                 ;;
-            flush) # clear mode - nothing to do
+            flush) # flush mode nothing to do
                 return 0
                 ;;
         esac
@@ -566,7 +563,7 @@ EXAMPLES
 
 req() {
     local use="req COMMAND/FILE [...]
-Require given files and commands.
+Require that the given files and commands exist.
 Succeed iff each given argument is a known command or readable file.
 Use this function to define program requirements in other functions.
 For example: req awk /etc/passwd || return 5"
@@ -581,9 +578,8 @@ For example: req awk /etc/passwd || return 5"
         esac
     done
     shift $((OPTIND - 1))
-    # check that each argument exists either as a file or as a command
-    local mis=0
-    local arg=""
+    # count arguments that do not exists either as a file or as a command
+    local mis=0 arg=""
     for arg in "$@"; do
         # accept readable files
         if [[ "$arg" =~ ^/ ]] && [ -r "$arg" ]; then
@@ -686,7 +682,7 @@ EXAMPLES
         esac
     done
     shift $((OPTIND - 1))
-    # require command argument
+    # require positional arguments for the command
     local args=("$@")
     if ! (($#)); then
         printf "%s\\n" "$use" >&2
@@ -783,8 +779,8 @@ spin() {
     # usage
     read -r -d '' use <<EOF
 spin [OPTIONS] [MESSAGE]
-Animate rotation through each character in the given string.
-Given no arguments a builtin default will be selected randomly.
+Draw an idle animation and message while waiting for something.
+Given no arguments a builtin default is selected randomly.
 
 OPTIONS
  -b SPINNER : Set the spinner.
@@ -881,7 +877,7 @@ EOF
         esac
     done
     shift $((OPTIND - 1))
-    # get sequence string argument from arguments or pick one at random
+    # get sequence string argument from arguments or pick one at random by default
     local seq=""
     if [ -z "$key" ]; then
         mapfile -t names < <(printf '%s\n' "${!data[@]}");
@@ -899,6 +895,7 @@ EOF
             local reset=""
             reset=$(stty -F /dev/tty -g)
             stty -F /dev/tty -echo
+            # shellcheck disable=SC2064
             trap "tput sgr0 >&2; tput cnorm >&2; stty -F /dev/tty ${reset}" INT EXIT RETURN
         else
             trap "tput sgr0 >&2; tput cnorm >&2;" INT EXIT RETURN
@@ -1134,7 +1131,7 @@ EOF
     local opt OPTIND OPTARG
     while getopts ":bcd:e:f:g:hi:jklmMn:opqrstuvwxyz:HP:0" opt; do
         case "$opt" in
-            b) # enable buffered stdin for command
+            b) # enable buffered stdin to pass to command
                 buffer=1
                 ;;
             c) # clear hold caches
@@ -1348,7 +1345,7 @@ EOF
     hap "${debug}${timing}" "< %s\\n" "$input"
     local id="cz_$$_${RANDOM}" sel=""
     if (( null )); then
-        # null delimited input implies decoding and caching
+        # null delimited input is decoded and cached
         hap "$timing" "NULL %s\\n" "$input"
         local lines=()
         mapfile -d '' -t lines < "$input"
@@ -1357,17 +1354,17 @@ EOF
         fi
         sel=$(printf "%q\\n" "${lines[@]}" | hold -f -k -x -n "$id" -)
     elif ! [ -f "$input" ]; then
-        # cache non-file input - probably process substitution
+        # non-file input is cached. most likely a named pipe from process substitution
         sel=$(hold -f -k -x -n "$id" "$input")
     else
-        # no need to cache normal files
+        # file input passed through not cached
         sel="$input"
     fi
-    # empty input so nothing to do
+    # empty input means nothing to do
     if ! [ -s "$sel" ]; then
         return 6
     fi
-    # maybe filter selections file and cache the results
+    # maybe filter the selections file and cache the results
     if [ -n "$pattern" ]; then
         hap "$debug" "A %s\\n" "$pattern"
         sel=$(grep -E -i -- "$pattern" "$sel" | hold -x -n "$id" -f -)
@@ -1379,12 +1376,12 @@ EOF
         hap "$timing" "STDIN\\n"
         mapfile -t stdin < /dev/stdin
         # optionally require actual input lines
-        if (( buffer )) && ! ((${#stdin})); then
+        if ((buffer)) && ! ((${#stdin})); then
             printf "%s\\n" "Expected to read from stdin." >&2
             return 5
         fi
     fi
-    # maybe only write selections to stdout
+    # output mode just writes selections to stdout
     if [[ "$mode" == "output" ]]; then
         hap "$timing" "OUTPUT\\n"
         printf "%s\\n" "$(< "$sel")"
@@ -1394,9 +1391,8 @@ EOF
     if ((batch)); then
         num=$(sed -n '$=' "$sel")
     fi
-    # politely handle signals
+    # politely handle signals and clear process cache on signal or return
     trap 'return 1' SIGINT SIGTERM
-    # clear process cache on signal or return
     trap 'hold -d -n ${id}; trap - RETURN SIGINT SIGTERM' RETURN
     # loop for desired number of selections
     local count=0 failed=0
@@ -1511,7 +1507,7 @@ EOF
                 printf "%s\\n" "$out"
                 ;;
             quote)
-                # render the feild template with selection fileds quoted
+                # render the field template with selection fields quoted
                 hap "${timing}${debug}" "f %s\\n" "$tfields"
                 if ! out="$(nth -q -- "$tfields" "${toks[@]}" 2>/dev/null)"; then
                     (( failed++ ))
@@ -1568,7 +1564,7 @@ EOF
                 printf "%s\\n" "$cmd"
                 ;;
             unquote)
-                # render the feild template with selection fileds unquoted
+                # render the field template with selection fields unquoted
                 hap "${timing}${debug}" "f %s\\n" "$tfields"
                 if ! out="$(nth -p -- "$tfields" "${toks[@]}" 2>/dev/null)"; then
                     (( failed++ ))
@@ -1669,7 +1665,7 @@ function _cz() {
         COMPREPLY=("${reply[@]}")
         return
     fi
-    # consider remaining arguments as plugins
+    # consider remaining arguments as a plugin name
     local idx=0 plugin="" args=()
     for ((idx=$(( ${#rest[@]} - 1 )); idx >= 0; --idx)); do
         # assume tokens are a plugin prefix
@@ -1730,7 +1726,7 @@ Select a cz plugin and run it in the given mode.
 The mode options are -o -p -q -r -s -t -u. The default mode is -p.
 
 This plugin is best used bound to a key, providing a quick
- interface to every other cz plugin.
+ interface to every other cz plugin!
 
 EXAMPLES
  $ bind -x '"\\C-xx":rleval cz meta -q' # insert quoted fields
@@ -1988,9 +1984,9 @@ cz_asn() {
 cz asn
 Select from RIPE database of ASNs (Autonomous System Numbers).
 EOF
-
     local url="https://ftp.ripe.net/ripe/asnames/asn.txt"
-    cz -f 0 -i "$(hold -e -t 86400 -- curl -sS "$url")"
+    local msg="Downloading ASN names from RIPE"
+    cz -f 0 -i "$(hold -e -t 86400 -m "$msg" -- curl -sS "$url")"
 }
 
 cz_bash_alias() {
@@ -2104,6 +2100,24 @@ ARG1 -gt ARG2:   Arithmetic greater than.
 ARG1 -ge ARG2:   Arithmetic greater than or equal.
 EOF
     cz -d: -f0 -i <(printf "%s\\n" "${tests[@]}")
+}
+
+cz_beets_album() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz beet album
+Select from names of metadata fields supported by beets.
+EOF
+    req beet sort || return 5
+    cz -d $'\t' -f 1 -i "$(hold -g || hold -f -x -- <(beet ls -f "\$artist"$'\t'"\$album"$'\t'"\$year" | sort -u))"
+}
+
+cz_beets_field() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz beet field
+Select from names of metadata fields supported by beets.
+EOF
+    req awk beet sort || return 5
+    cz -f 1 -i "$(hold -g || hold -f -x -- <(beet fields | awk '/^[A-Z]/{ n = tolower($1) }/^  /{ print n, $1 }' | sort))"
 }
 
 cz_bluetooth_controller() {
@@ -2220,7 +2234,7 @@ cz_buku_tag() {
 cz buku tag [QUERY]
 Select a buku tag.
 EOF
-    req buku sed || return 5
+    req buku jq sed || return 5
     local query="${1:-.}" filter=""
     read -r filter <<EOF
 [.[] | .tags | split(",")] | flatten | unique | .[] | gsub(" "; "_")
@@ -2243,8 +2257,97 @@ EOF
     cz -f 2 -i <(hold -ep -- curl -sS "$url" | jq -r "$filter")
 }
 
+cz_cleed_feed() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz cleed feed [LIST]
+Select a feed by URL from the given cleed list.
+EOF
+    req cleed sed || return 5
+    local list="${1:-$(insulate ^_CZ_ cz -u cleed list)}"
+    if [ -z "$list" ]; then
+       return 1
+    fi
+    cz -f 2 -i <(cleed list "$list" | sed '$d')
+}
+
+_cz_cleed_feed() {
+    local name="$1" curr="$2" prev="$3" words=("${@:4}")
+    if [[ "$curr" == "${words[0]}" ]]; then
+        local lists=()
+        mapfile -t lists < <(cleed list)
+        mapfile -t reply < <(compgen -W "${lists[*]}" -- "$curr")
+        COMPREPLY=("${reply[@]}")
+    fi
+}
+
+cz_cleed_item() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz cleed item [LIST] [SINCE] [SEARCH]
+Select a feed by URL from the given cleed list.
+EOF
+    req cleed perl || return 5
+    local list="${1:-$(insulate ^_CZ_ cz -u cleed list)}"
+    if [ -z "$list" ]; then
+       return 1
+    fi
+    local args=("--list" "$list" "--limit" "500")
+    local since="$2"
+    if [ -n "$since" ]; then
+        args+=("--since" "$2")
+    fi
+    local search="$3"
+    if [ -n "$search" ]; then
+        args+=("--search" "$3")
+    fi
+    # shellcheck disable=SC2016
+    local filter='
+BEGIN{ my @v; my $t=0; my ($x, $y) };
+if(/^$/) { $t=0; };
+if(/^(.+[^\s]) [ ]+(.+)$/){
+ if($t){
+  unshift @v, join("\t",$1,$x,$y,$2);
+ } else {
+  $x = $1; $y = $2; $t = 1;
+ }
+};
+END{ say for @v; };'
+    cz -d$'\t' -f 3 -i <(cleed "${args[@]}" | perl -nE "$filter")
+}
+
+_cz_cleed_item() {
+    local name="$1" curr="$2" prev="$3" words=("${@:4}")
+    local reply=()
+    if [[ "$curr" == "${words[0]}" ]]; then
+        local lists=()
+        mapfile -t lists < <(cleed list)
+        mapfile -t reply < <(compgen -W "${lists[*]}" -- "$curr")
+        COMPREPLY=("${reply[@]}")
+        return
+    fi
+    if [[ "$curr" == "${words[1]}" ]]; then
+        mapfile -t reply < <(compgen -W "1d" -- "$curr")
+        COMPREPLY=("${reply[@]}")
+        return
+    fi
+    if [[ "$curr" == "${words[1]}" ]]; then
+        mapfile -t reply < <(compgen -W ".*" -- "$curr")
+        COMPREPLY=("${reply[@]}")
+        return
+    fi
+}
+
+cz_cleed_list() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz cleed list
+Select a list by name from configured cleed lists.
+EOF
+    req cleed || return 5
+    cz -f 0 -e 'cleed --list={0}' -i <(cleed list)
+}
+
 colorblock() {
     local use="usage: colorblock HEXCOLOR\\nGenerate an image of a solid block of the chosen color.\\n"
+    req convert || return 5
     local color="$1"
     if (( $# > 1 )); then
         printf "%s\\n" "$use" >&2
@@ -2254,7 +2357,6 @@ colorblock() {
         printf "Argument does not look like a hexadecimal color.\\n" >&2
         return 2
     fi
-    req convert || return 5
     local out="/tmp/${color###}.png"
     if ! convert -size 100x100 xc:"$color" png:"$out"; then
         return 3
@@ -2267,9 +2369,43 @@ cz_color() {
 cz color
 Select a hex color by name from available sources.
 EOF
-    req sort || return 5
-    cz -d $'\t' -e "xdg-open \$(colorblock {0})" -f 0 \
-       -i <( (insulate ^_CZ_ cz -o xkcd rgb; insulate ^_CZ_ cz -o x11 rgb;) 2>/dev/null | sort)
+    req sed sort || return 5
+    local colors=""
+    colors=$(hold -f -- \
+                  <(( insulate ^_CZ_ cz -o color xkcd;
+                      insulate ^_CZ_ cz -o color x11;
+                      insulate ^_CZ_ cz -o color pastel;
+                    ) 2>/dev/null | sed 's/ *$//' | sort -u))
+    cz -d $'\t' -e "xdg-open \$(colorblock {0})" -f 0 -i "$colors"
+}
+
+cz_color_pastel() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz color pastel
+Select a color by name from the set of colors supported by pastel.
+EOF
+    req pastel || return 5
+    local colors=""
+    colors=$(hold -f -t 604800 -- \
+                  <(while read -r n; do
+                        printf "%s\\t%s\\n" "$(pastel format hex "$n")" "$n";
+                    done < <(pastel list)))
+    cz -d $'\t' -e "xdg-open \$(colorblock {0})" -f 0 -i "$colors"
+}
+
+cz_color_x11() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz color x11
+Select a color by name from the X11 flat file database.
+EOF
+    local rgb="/etc/X11/rgb.txt"
+    req "$rgb" perl sort || return 5
+    read -r -d '' tweak <<EOF
+next if /^!/;
+printf "#%02x%02x%02x\\t%s\\n", @F[0..2], join(" ", @F[3..\$#F])
+EOF
+    cz -d $'\t' -f 1 \
+       -i "$(hold -f -t 2592000 -- <(perl -lanE "$tweak" "$rgb" | sort))"
 }
 
 cz_color_xkcd() {
@@ -2284,7 +2420,7 @@ EOF
 next if /^#/;
 printf "%s\\t%s\\n", \$F[-1], join(" ", @F[0..\$#F-1])
 EOF
-    cz -d $'\t' -f 1 -i <(hold -ep -- curl -sS "$url" | perl -lanE "$tweak" | sort)
+    cz -d $'\t' -f 1 -i "$(hold -f -t 2592000 -- <(curl -sS "$url" | perl -lanE "$tweak" | sort))"
 }
 
 cz_comic_achewood() {
@@ -2298,7 +2434,9 @@ EOF
 /archiveLink.*href=\"\\/(\\d+)\\/(\\d+)\\/(\\d+)\\/title.html\">(.+)<\\/a>/ &&
 say join("\\t", join("-",\$1,\$2,\$3), sprintf("https://achewood.com/assets/img/%02d%02d%02d.png", \$2,\$3,\$1), \$4);
 EOF
-    cz -f 1 -e 'xdg-open {1}' -i "$(hold -g || hold -x -f <(curl -sS "$url" | perl -nE "$filter"))"
+    local msg="Scraping Achewood archive page."
+    cz -d $'\t' -f 1 -e 'xdg-open {1}' \
+       -i "$(hold -g || hold -f -x -m "$msg" -- <(curl -sS "$url" | perl -nE "$filter"))"
 }
 
 cz_comic_smbc() {
@@ -2312,8 +2450,9 @@ EOF
 my @m = \$_ =~ /<option value="(.*?)">(.*?)<\\/option>/g;
 say join "\\t", "https://www.smbc-comics.com/" . \$_->[0], \$_->[1] for pairs @m;
 EOF
+    local msg="Scraping SMBC comic archive."
     cz -d $'\t' -e 'xdg-open {0}' -f 0 \
-       -i "$(hold -g -t 604800 || hold -x -f <(curl -sS "$url" | perl -MList::Util=pairs -nE "$filter"))"
+       -i "$(hold -g -t 604800 || hold -f -x -m "$msg" -- <(curl -sS "$url" | perl -MList::Util=pairs -nE "$filter"))"
 }
 
 cz_comic_xkcd() {
@@ -2327,8 +2466,9 @@ EOF
 /^<a href="\\/(\\d+)\\/" title="(.+)">(.*)<\\/a>/ &&
 say join("\\t", \$1, sprintf("https://xkcd.com/%d", \$1), \$2, \$3)
 EOF
+    local msg="Scraping XKCD comic archive."
     cz -d $'\t' -f 0 -e 'xdg-open {1} ' \
-       -i "$(hold -g -t 1209600 || hold -x -f <(curl -sS "$url" | perl -nE "$filter"))"
+       -i "$(hold -g -t 1209600 || hold -f -x -m "$msg" -- <(curl -sS "$url" | perl -nE "$filter"))"
 }
 
 declare n=""
@@ -2572,6 +2712,12 @@ EOF
     cz -f 2: -i <(printf "%s\\n" "${output[@]}")
 }
 
+_cz_dns_scan() {
+    local name="$1" curr="$2" prev="$3" words=("${@:4}")
+    mapfile -t reply < <(compgen -A hostname -- "$curr")
+    COMPREPLY=("${reply[@]}")
+}
+
 cz_dns_tld() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz dns tld
@@ -2579,7 +2725,8 @@ Select a DNS top-level-domain as recorded by IANA.
 EOF
     req curl grep tr || return 5
     local url="https://data.iana.org/TLD/tlds-alpha-by-domain.txt"
-    cz -i <(hold -ep curl -sS "$url" | grep -v '^#' | tr '[:upper:]' '[:lower:]')
+    local msg="Fetching list of TLDs from IANA."
+    cz -i "$(hold -f -m "$msg" -- <(curl -sS "$url" | grep -v '^#' | tr '[:upper:]' '[:lower:]'))"
 }
 
 cz_docker_container() {
@@ -2643,6 +2790,56 @@ EOF
     req env || return 5
     cz -0 -d '=' -f 0 -e "printf '%s\\n' \"\${0}\"" \
        -i <(env -0)
+}
+
+cz_etcd_key() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz etcd key [PREFIX]
+Select an etcd key matching the given prefix.
+EOF
+    req etcdctl sed || return 5
+    local prefix="${1:-}"
+    cz -e 'etcdctl get --print-value-only {0}' -f 0 \
+       -i <(etcdctl get --keys-only --prefix "$prefix" | sed '/^$/d;')
+}
+
+cz_etcd_lease() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz etcd lease
+Select an etcd lease.
+EOF
+    req etcdctl sed || return 5
+    cz -e 'etcdctl lease timetolive {0}' -f 0  \
+       -i <(etcdctl lease list | sed '1d')
+}
+
+cz_etcd_member() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz etcd member
+Select an etcd cluster member.
+EOF
+    req etcdctl || return 5
+    cz -f 0 -i <(etcdctl member list)
+}
+
+cz_etcd_role() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz etcd role
+Select an etcd role.
+EOF
+    req etcdctl || return 5
+    cz -e 'etcd role get {0}' -f 0  \
+       -i <(etcdctl role list)
+}
+
+cz_etcd_user() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz etcd user
+Select an etcd user.
+EOF
+    req etcdctl sed || return 5
+    cz -e 'etcdctl user get {0}' -f 0 \
+       -i <(etcdctl user list)
 }
 
 cz_fc_font() {
@@ -2980,7 +3177,7 @@ EOF
     req gcloud jq sort || return 5
     local proj="${1:-$(insulate ^_CZ_ cz -u gcloud project)}"
     if [ -z "$proj" ]; then return 2; fi
-    local zone="${2:-$(insulate ^_CZ_ cz -u gcloud compute zone )}"
+    local zone="${2:-$(insulate ^_CZ_ cz -u gcloud compute zone)}"
     if [ -z "$zone" ]; then return 2; fi
     cz -f 1 \
        -i <(gcloud --project="$proj" --format=json compute machine-types list --filter=zone="$zone" \
@@ -2989,7 +3186,7 @@ EOF
 
 cz_gcloud_compute_mig() {
     { hep "$_CZ_HELP" && return; } <<EOF
-cz gcloud compute instance group [PROJECT]
+cz gcloud compute mig [PROJECT]
 Select a Google cloud compute managed instance group and describe it in JSON.
 EOF
     req gcloud jq || return 5
@@ -3457,7 +3654,8 @@ cz_grep() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz grep PATTERN [TARGET]
 Select a file and line matching grep results for PATTERN in TARGET.
-If TARGET is a directory search it recursively.
+If target is a directory search it recursively.
+If target is '-' read from stdin.
 EOF
     req grep || return 5
     local pattern="${1}"
@@ -3465,7 +3663,6 @@ EOF
        return 2
     fi
     shift
-    # cache stdin argument otherwise targets are paths
     local targets=() arg=""
     for arg in "$@"; do
         if [[ "$arg" == "-" ]]; then
@@ -3645,6 +3842,33 @@ EOF
        -i <(i3-msg -t get_workspaces | jq -r "$filter")
 }
 
+cz_ia_ls() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz ia ls ITEM_ID
+List files within the given Internet Archive item.
+EOF
+    req ia || return 5
+    local id="$1"
+    if [ -z "$id" ]; then
+        return 3
+    fi
+    cz -d $'\n' -e "ia download ${id@Q} {0}" -f 0 -i <(ia ls "$1")
+}
+
+cz_ia_search() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz ia search QUERY
+Search the Internet Archive and select from resulting entries.
+EOF
+    req ia jq || return 5
+    if ! (($#)); then
+        return 3
+    fi
+    local fields=(identifier title creator mediatype addeddate)
+    local filter=". as \$r | \$r | [.mediatype // 'unknown', .addeddate, .title // 'NA', .identifier ] | @tsv"
+    cz -d $'\t' -e 'ia download {3}' -f 3 -i <(ia search -f "${fields[@]}"  -- "$*" | jq -r "$filter" )
+}
+
 cz_info()  {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz info [QUERY]
@@ -3724,7 +3948,6 @@ Select options for mispelled words in the input text.
 Print text with updated to replace words with selections.
 EOF
     req ispell || return 5
-    # parse ispell spellcheck output
     mapfile -t lines
     local line="" index=0 fix=""
     while read -r symbol rest; do
@@ -3884,20 +4107,6 @@ EOF
     cz -e "lpass show --password {0}" < <(printf "%s\\n" "${lpmenu[@]}")
 }
 
-cz_lego_set() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz lego set
-Select a Lego set from the rebrickable.com database.
-EOF
-    req curl mlr sed zcat || return 5
-    local sets="" url="https://cdn.rebrickable.com/media/downloads/sets.csv.gz"
-    if ! sets=$(hold -g -t 604800 || \
-                    hold -f -x -- <(curl -sS "$url" \ | zcat - | mlr --c2t --quote-none cat | sed '1d;s/\r$//')); then
-        return 4
-    fi
-    cz -d$'\t' -f '5' -e 'xdg-open https://rebrickable.com/sets/{0}' -i "$sets"
-}
-
 cz_lego_minifig() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz lego minifig
@@ -3912,6 +4121,34 @@ EOF
     cz -d$'\t' -f 3 -e 'xdg-open https://rebrickable.com/minifigs/{0}' -i "$figs"
 }
 
+cz_lego_part() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz lego part
+Select a Lego part from the rebrickable.com database.
+EOF
+    req curl mlr zcat || return 5
+    local parts="" url="https://cdn.rebrickable.com/media/downloads/parts.csv.gz"
+    if ! parts=$(hold -g -t 604800 || \
+                    hold -f -x -- <(curl -sS "$url" | zcat - | mlr --c2t --quote-none cat | sed '1d;s/\r$//')); then
+        return 4
+    fi
+    cz -d$'\t' -f '5' -e 'xdg-open https://rebrickable.com/parts/{0}' -i "$parts"
+}
+
+cz_lego_set() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz lego set
+Select a Lego set from the rebrickable.com database.
+EOF
+    req curl mlr sed zcat || return 5
+    local sets="" url="https://cdn.rebrickable.com/media/downloads/sets.csv.gz"
+    if ! sets=$(hold -g -t 604800 || \
+                    hold -f -x -- <(curl -sS "$url" \ | zcat - | mlr --c2t --quote-none cat | sed '1d;s/\r$//')); then
+        return 4
+    fi
+    cz -d$'\t' -f '5' -e 'xdg-open https://rebrickable.com/sets/{0}' -i "$sets"
+}
+
 cz_lego_theme() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz lego theme
@@ -3924,20 +4161,6 @@ EOF
         return 4
     fi
     cz -d$'\t' -f '5' -e 'xdg-open https://rebrickable.com/sets/?theme={0}' -i "$themes"
-}
-
-cz_lego_part() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz lego part
-Select a Lego part from the rebrickable.com database.
-EOF
-    req curl mlr || return 5
-    local parts="" url="https://cdn.rebrickable.com/media/downloads/parts.csv.gz"
-    if ! parts=$(hold -g -t 604800 || \
-                    hold -f -x -- <(curl -sS "$url" | zcat - | mlr --c2t --quote-none cat | sed '1d;s/\r$//')); then
-        return 4
-    fi
-    cz -d$'\t' -f '5' -e 'xdg-open https://rebrickable.com/parts/{0}' -i "$parts"
 }
 
 cz_line() {
@@ -4070,13 +4293,14 @@ EOF
     cz -f 0 -e 'man {0}' -i <(man -k "${1:-.}" | sed 's/ (/./;s/)//')
 }
 
-cz_mlr_verb() {
+cz_mimetype() {
     { hep "$_CZ_HELP" && return; } <<EOF
-cz mlr verb
-Select a miller sub-command verb.
+cz mimetype
+Select a mimetype and related file extensions.
 EOF
-    req mlr || return 5
-    cz -f 0 -e 'mlr {0} --help' -i <(mlr -l | tr ' ' '\n' | sort -u)
+    req grep /etc/mime.types || return 5
+    # $ xdg-mime default Thunar.desktop inode/directory
+    cz -e 'xdg-mime query default {0}' -f 0 -i <(grep -v -e '^#' -e '^$' /etc/mime.types)
 }
 
 cz_mlr_func() {
@@ -4088,14 +4312,13 @@ EOF
     cz -f 0 -e 'mlr -f | grep ^{0}" " -A1' -i <(mlr -f | tr ' ' '\n' | sort -u)
 }
 
-cz_mimetype() {
+cz_mlr_verb() {
     { hep "$_CZ_HELP" && return; } <<EOF
-cz mimetype
-Select a mimetype and related file extensions.
+cz mlr verb
+Select a miller sub-command verb.
 EOF
-    req grep /etc/mime.types || return 5
-    # $ xdg-mime default Thunar.desktop inode/directory
-    cz -e 'xdg-mime query default {0}' -f 0 -i <(grep -v -e '^#' -e '^$' /etc/mime.types)
+    req mlr || return 5
+    cz -f 0 -e 'mlr {0} --help' -i <(mlr -l | tr ' ' '\n' | sort -u)
 }
 
 cz_mount() {
@@ -4168,8 +4391,9 @@ cz mpd track
 Select a track number from the current mpd playlist then play that track.
 EOF
     req mpc || return 5
+    local fmt='%position% [%artist% - %album% - %title%] --  %file%'
     cz -f 0 -e 'mpc play {0}' \
-       -i <(hold -ept 30 -- mpc -f '%position% [%artist% - %album% - %title%] --  %file%' playlist)
+       -i <(hold -ept 30 -- mpc -f "$fmt" playlist)
 }
 
 cz_mpd_type() {
@@ -4221,8 +4445,8 @@ scryfall_tags() {
 
 cz_mtg_art() {
     { hep "$_CZ_HELP" && return; } <<EOF
-cz mtg image
-Select the art portion of a MTG card by name using data from scryfall.com.
+cz mtg art
+Select the art portion of a Magic: The Gathering card by name using data from scryfall.com.
 EOF
     req curl jq sort || return 5
     # shellcheck disable=SC2016
@@ -4238,8 +4462,8 @@ EOF
     $card.artist,
     (. | split("?"))[0]
 ] | @tsv'
-    local cards=""
-    if ! cards=$(hold -g -t 86400 || hold -f <(scryfall_cards | jq -r "$filter" | sort -u)); then
+    local cards="" msg="Fetching MTG card art from Scryfall"
+    if ! cards=$(hold -g -t 2592000 || hold -f -m "$msg" <(scryfall_cards | jq -r "$filter" | sort -u)); then
         return 2
     fi
     cz -d $'\t' -e 'xdg-open {5}' -f 5 -i "$cards"
@@ -4248,7 +4472,81 @@ EOF
 cz_mtg_card() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz mtg card
-Select a specific printing of a MTG card by name using data from scryfall.com.
+Select a specific printing of a Magic: The Gathering card by name using data from scryfall.com.
+EOF
+    req curl jq sort || return 5
+    local filter='
+.[] | [
+    .set,
+    if .color_identity | length == 0 then "C" else .color_identity | sort | join("") end,
+    .name,
+    .type_line,
+    .rarity,
+    (.scryfall_uri | split("?"))[0]
+] | @tsv'
+    local cards="" msg="Fetching MTG card data from Scryfall"
+    if ! cards=$(hold -g -t 2592000 || hold -f -m "$msg" <(scryfall_cards | jq -r "$filter" | sort -u)); then
+        return 2
+    fi
+    cz -d $'\t' -e 'xdg-open {5}' -f 2 -i "$cards"
+}
+
+cz_mtg_card_byset() {
+    local set="";
+    if ! set="${1:-$(insulate _CZ cz -u -f0 mtg set)}" || [ -z "$set" ]; then return 2; fi
+    cz -g "^${set}" mtg card
+}
+
+cz_mtg_card_bytribe() {
+    local tribe="";
+    if ! tribe="${1:-$(insulate _CZ cz -u -f0 mtg tribe)}" || [ -z "$tribe" ]; then return 2; fi
+    cz -g $'\t'"[${tribe}]+"$'\t' mtg card
+}
+
+cz_mtg_data() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz mtg data
+Select a Magic: The Gathering card by name then dump its scryfall.com data as JSON.
+EOF
+    req curl jq sort || return 5
+    local filter='.[] | [.set, .name, .id ] | @tsv'
+    local cards=""
+    if ! cards=$(hold -g -t 2592000 || hold -f <(scryfall_cards | jq -r "$filter" | sort -u)); then
+        return 2
+    fi
+    cz -d $'\t' -e "scryfall_cards | jq --arg id {2} '.[] | first(select(.id == \$id))'" -f 2 -i "$cards"
+}
+
+cz_mtg_image() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz mtg image
+Select an Magic: The Gathering card image by name using data from scryfall.com.
+EOF
+    req curl jq sort || return 5
+    # shellcheck disable=SC2016
+    local filter='
+    .[] |
+. as $card
+| $card | ((try([.card_faces[].image_uris.normal]) // []) + [$card.image_uris.normal]) | map(select(. != null)) as $images
+| $images[] | [
+    $card.set,
+    if $card.color_identity | length == 0 then "C" else $card.color_identity | sort | join("") end,
+    $card.name,
+    $card.type_line,
+    $card.artist,
+    (. | split("?"))[0]
+] | @tsv'
+    local cards="" msg="Fetching image data from Scryfall"
+    if ! cards=$(hold -g -t 86400 || hold -f -m "$msg" <(scryfall_cards | jq -r "$filter" | sort -u)); then
+        return 2
+    fi
+    cz -d $'\t' -e 'xdg-open {5}' -f 5 -i "$cards"
+}
+
+cz_mtg_oracle() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz mtg oracle
+Select a unique Magic: The Gathering card by name using data from scryfall.com.
 EOF
     req curl jq sort || return 5
     local filter='
@@ -4259,29 +4557,72 @@ EOF
     .type_line,
     (.scryfall_uri | split("?"))[0]
 ] | @tsv'
-    local cards=""
-    if ! cards=$(hold -g -t 86400 || hold -s -f <(scryfall_cards | jq -r "$filter" | sort -u)); then
+    local cards="" msg="Fetching Oracle data from Scryfall"
+    if ! cards=$(hold -g -t 2592000 || hold -f -m "$msg" <(scryfall_oracle | jq -r "$filter" | sort -u)); then
         return 2
     fi
     cz -d $'\t' -e 'xdg-open {4}' -f 2 -i "$cards"
 }
 
-cz_mtg_card_byset() {
-    local set="";
-    if ! set="${1:-$(insulate _CZ cz -u -f0 mtg set)}" || [ -z "$set" ]; then return 1; fi
-    cz -g "^${set}" mtg card
+cz_mtg_set() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz mtg set
+Select an Magic: The Gathering set by name using data from scryfall.com.
+EOF
+    req curl sort || return 5
+    local url="https://api.scryfall.com/sets"
+    if ! sets=$(hold -pe -n scryfallsets -t 2592000 -- curl -sS "$url" \
+                    | jq -r '.data[] | [.released_at, .code, .name ] | @tsv'); then
+        return 2
+    fi
+    cz -d $'\t' -e "xdg-open https://scryfall.com/sets/{1}" -f 1 -i <(sort -u <<< "${sets[@]}")
 }
 
-cz_mtg_card_bytribe() {
-    local tribe="";
-    if ! tribe="${1:-$(insulate _CZ cz -u -f0 mtg tribe)}" || [ -z "$tribe" ]; then return 1; fi
-    cz -g $'\t'"[${tribe}]+"$'\t' mtg card
+cz_mtg_subtype() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz mtg subtype
+Select a card subtype from Magic: The Gathering cards using data from scryfall.com.
+EOF
+    req curl jq sort || return 5
+    # shellcheck disable=SC2016
+    local filter='.[] | select(.layout != "art_series")
+| select([.set_type] | inside(["box", "funny", "memorabilia", "minigame", "token"]) | not)
+| select(.type_line | test("^Plane") | not)
+| . as $card
+| $card.type_line | strings | split("//") as $sides
+| $sides[] | strings | split("—")[1] | strings | trim | split(" ") as $subs
+| $subs[] | [.] | @tsv'
+    local cards="" msg="Determining MTG subtypes from Scryfall data"
+    if ! cards=$(hold -g -t 2592000 || hold -f -m "$msg" <(scryfall_cards | jq -r "$filter" | sort -u)); then
+        return 2
+    fi
+    cz -d $'\t' -f 0 -i "$cards"
+}
+
+cz_mtg_supertype() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz mtg supertype
+Select a card supertype from Magic: The Gathering using data from scryfall.com.
+EOF
+    req curl jq sort || return 5
+    # shellcheck disable=SC2016
+    local filter='.[] | select(.layout != "art_series")
+| select([.set_type] | inside(["box", "funny", "memorabilia", "minigame", "token"]) | not)
+| . as $card
+| $card.type_line | strings | split("//") as $sides
+| $sides[] | strings | split("—")[0] | strings | trim | split(" ") as $sups
+| $sups[] | [.] | @tsv'
+    local cards="" msg="Determining MTG supertypes from Scryfall data"
+    if ! cards=$(hold -g -t 2592000 || hold -f -m "$msg" <(scryfall_cards | jq -r "$filter" | sort -u)); then
+        return 2
+    fi
+    cz -d $'\t' -f 0 -i "$cards"
 }
 
 cz_mtg_tag() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz mtg tag
-Select a MTG card by Scryfall tag.
+Select a Magic: The Gathering card by Scryfall tag.
 EOF
     cz -e 'xdg-open {2}' -f1 -i <(scryfall_tags)
 }
@@ -4289,7 +4630,7 @@ EOF
 cz_mtg_tribe() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz mtg tribe
-Select a MTG color tribe.
+Select a Magic: The Gathering color tribe.
 EOF
     local tribes="C      1 Colorless
 W      1 White
@@ -4326,85 +4667,10 @@ BGRUW  5 Rainbow"
     cz -f 0 -i <(printf "%s" "$tribes")
 }
 
-cz_mtg_data() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz mtg data
-Select a MTG card by name then dump its scryfall.com data as JSON.
-EOF
-    req curl jq sort || return 5
-    local filter='.[] | [.set, .name, .id ] | @tsv'
-    local cards=""
-    if ! cards=$(hold -g -t 86400 || hold -f <(scryfall_cards | jq -r "$filter" | sort -u)); then
-        return 2
-    fi
-    cz -d $'\t' -e "scryfall_cards | jq --arg id {2} '.[] | first(select(.id == \$id))'" -f 2 -i "$cards"
-}
-
-cz_mtg_image() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz mtg image
-Select an MTG card image by name using data from scryfall.com.
-EOF
-    req curl jq sort || return 5
-    # shellcheck disable=SC2016
-    local filter='
-    .[] |
-. as $card
-| $card | ((try([.card_faces[].image_uris.normal]) // []) + [$card.image_uris.normal]) | map(select(. != null)) as $images
-| $images[] | [
-    $card.set,
-    if $card.color_identity | length == 0 then "C" else $card.color_identity | sort | join("") end,
-    $card.name,
-    $card.type_line,
-    $card.artist,
-    (. | split("?"))[0]
-] | @tsv'
-    local cards=""
-    if ! cards=$(hold -g -t 86400 || hold -f <(scryfall_cards | jq -r "$filter" | sort -u)); then
-        return 2
-    fi
-    cz -d $'\t' -e 'xdg-open {5}' -f 5 -i "$cards"
-}
-
-cz_mtg_oracle() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz mtg oracle
-Select a unique MTG card by name using data from scryfall.com.
-EOF
-    req curl jq sort || return 5
-    local filter='
-.[] | [
-    .set,
-    if .color_identity | length == 0 then "C" else .color_identity | sort | join("") end,
-    .name,
-    .type_line,
-    (.scryfall_uri | split("?"))[0]
-] | @tsv'
-    local cards="" msg="Fetching oracle data from Scryfall"
-    if ! cards=$(hold -g -t 86400 || hold -m "$msg" -f <(scryfall_oracle | jq -r "$filter" | sort -u)); then
-        return 2
-    fi
-    cz -d $'\t' -e 'xdg-open {4}' -f 2 -i "$cards"
-}
-
-cz_mtg_set() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz mtg set
-Select an MTG set by name using data from scryfall.com.
-EOF
-    req curl sort || return 5
-    local url="https://api.scryfall.com/sets"
-    if ! sets=$(hold -pe -n scryfallsets -t 86400 -- curl -sS "$url" \
-                    | jq -r '.data[] | [.released_at, .code, .name ] | @tsv'); then
-        return 2
-    fi
-    cz -d $'\t' -e "xdg-open https://scryfall.com/sets/{1}" -f 1 -i <(sort -u <<< "${sets[@]}")
-}
-
 cz_notmuch() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz notmuch QUERY
-Select a message matcing the given query of a notmuch mail index.
+Select an email message found by the given query of a notmuch mail index.
 EOF
     req getent || return 5
     cz -e 'notmuch show {0}' -f 0 -i <(notmuch search "$@")
@@ -4464,21 +4730,50 @@ EOF
     cz -f 1 -i <(getent services)
 }
 
-cz_oaf_format() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz oaf [LANGUAGE] < STREAM
-Quote given input into the selected document quote format.
-See https://metacpan.org/pod/App::oaf for installation.
-EOF
-    req oaf perl || return 5
-    local lang="${1:-text}"
-    cz -f 0 -e "oaf -l ${lang@Q} -f {0}" -b -i <(oaf -p)
-}
-
 osmnames() {
     req curl || return 5
     local url="https://github.com/OSMNames/OSMNames/releases/download/v2.0.4/planet-latest_geonames.tsv.gz"
     (hold -p -g || hold -p -e -- curl -LsS "$url" -o -) | zcat -
+}
+
+cz_osm_class() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz osm class
+EOF
+    req curl mlr || return 5
+    local db="" msg='Fetching OSM geonames dataset'
+    if ! db=$(hold -g || hold -f -m "$msg" -- <(osmnames | mlr -t nest --evar , -f class | mlr -t uniq -f class)); then
+        return 1
+    fi
+    cz -i "$db"
+}
+
+cz_osm_country() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz osm country
+EOF
+    req curl mlr sed || return 5
+    local db="" msg='Fetching OSM geonames dataset'
+    if ! db=$(hold -g || hold -f -m "$msg" -- <(osmnames | mlr --tsv uniq -f country_code,country | sed '1d;/^\t/d;')); then
+        return 1
+    fi
+    cz -f 0 -i "$db"
+}
+
+cz_osm_query() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz osm query [KEY] [VALUE]
+EOF
+    req mlr || return 5
+    local k="$1";
+    if [ -z "$k" ]; then
+        return 1
+    fi
+    local v=""
+    if ! v="${2:-$(insulate ^_CZ_ cz -u osm type)}"; then
+       return 2
+    fi
+    cz -i <(osmnames | mlr -t filter -s k="$k" -s v="$v" 'any(splita($[@k], ","), func(e) { return e == @v })')
 }
 
 cz_osm_type() {
@@ -4498,46 +4793,6 @@ EOF
         unclassified village volcano water)
     local db=""; db=$(hold -e -t 86400 -- printf "%s\\n" "${types[@]}")
     cz -i "$db"
-}
-
-cz_osm_class() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz osm class
-EOF
-    req curl mlr || return 5
-    local db=""
-    if ! db=$(hold -g || hold -f - < <(osmnames | mlr -t nest --evar , -f class | mlr -t uniq -f class)); then
-        return 1
-    fi
-    cz -i "$db"
-}
-
-cz_osm_country() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz osm class
-EOF
-    req curl mlr sed || return 5
-    local db=""
-    if ! db=$(hold -g || hold -f - < <(osmnames | mlr --tsv uniq -f country_code,country | sed '1d;/^\t/d;')); then
-        return 1
-    fi
-    cz -i "$db"
-}
-
-cz_osm_query() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz osm query [KEY] [VALUE]
-EOF
-    req mlr || return 5
-    local k="$1";
-    if [ -z "$k" ]; then
-        return 1
-    fi
-    local v=""
-    if ! v="${2:-$(insulate ^_CZ_ cz -u osm type)}"; then
-       return 2
-    fi
-    cz -i <(osmnames | mlr -t filter -s k="$k" -s v="$v" 'any(splita($[@k], ","), func(e) { return e == @v })')
 }
 
 cz_pandoc() {
@@ -4766,8 +5021,9 @@ Select a radio station stream and open it to play.
 EOF
     req curl || return 5
     local pat="${1:-.}"
+    local msg="Fetching stations from radio-browser.info"
     local json="" url="http://all.api.radio-browser.info/json/stations"
-    if ! json=$(hold -n radio_browser_all -e -t 604800 -- curl -sS "$url"); then
+    if ! json=$(hold -m "$msg"  -n radio_browser_all -e -t 604800 -- curl -sS "$url"); then
         return 2
     fi
     read -r -d '' filter <<EOF
@@ -4779,7 +5035,7 @@ EOF
  .url
 ] | @tsv
 EOF
-    cz -d $'\t' -e 'xdg-open {4}' -f 4 \
+    cz -d $'\t' -e 'xdg-open {3}' -f 3 \
        -i <(hold -p -t 2 -e -- jq -r "$filter" "$json" | grep "$pat" | sort)
 }
 
@@ -4879,7 +5135,6 @@ cz sbemail
 Select a Strong Bad Email from homestarrunner.com.
 EOF
     req curl grep sort || return 5
-
     local s=""
     s=$(hold -g -t 2592000 || hold -f -x - \
       < <(local url="" name="" page=""
@@ -4892,7 +5147,6 @@ EOF
               fi
           done < <(curl -sS https://homestarrunner.com/sbemail.html \
                        | insulate ^_CZ_ cz -o uri) | sort -n -u))
-
     cz -f 0 -e 'xdg-open {1}' -i "$s"
 }
 
@@ -5505,8 +5759,8 @@ EOF
         return 1
     fi
     local url="https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-all-titles-in-ns0.gz"
-    local in=""
-    if ! in=$(hold -g -t 2592000 || hold -f -x <(curl -sS "$url" -o - | zcat -)); then
+    local in="" msg="Fetching Wikipedia title index"
+    if ! in=$(hold -g -t 2592000 || hold -f -m "$msg" -x <(curl -sS "$url" -o - | zcat -)); then
         return 2
     fi
     cz -g "$pat" -e "xdg-open https://en.wikipedia.org/wiki/{0}" -f 0 -i "$in"
@@ -5532,21 +5786,6 @@ _cz_word() {
         COMPREPLY=("${reply[@]}")
         compopt -o filenames
     fi
-}
-
-cz_x11_rgb() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz x11 rgb
-Select a color by name from the X11 flat file database.
-EOF
-    local rgb="/etc/X11/rgb.txt"
-    req "$rgb" perl sort || return 5
-    read -r -d '' tweak <<EOF
-next if /^!/;
-printf "#%02x%02x%02x\\t%s\\n", @F[0..2], join(" ", @F[3..\$#F])
-EOF
-    cz -d $'\t' -f 1 \
-       -i <(hold -pe -- perl -lanE "$tweak" "$rgb" | sort)
 }
 
 cz_x11_window() {
@@ -5597,9 +5836,10 @@ cz xinput device
 Select an X11 device and print its name.
 EOF
     req xinput sort || return 5
-    mapfile -t lines < <(while read -r id; do
-                             printf "%s:%s\\n" "$id" "$(xinput list --name-only "$id")";
-                         done < <(xinput list --id-only) | sort -nk1)
+    mapfile -t lines < \
+            <(while read -r id; do
+                  printf "%s:%s\\n" "$id" "$(xinput list --name-only "$id")";
+              done < <(xinput list --id-only) | sort -nk1)
     cz -d ':' -f 1 -i <(printf "%s\\n" "${lines[@]}")
 }
 
@@ -5656,7 +5896,7 @@ cz xrandr monitor
 Select a X11 monitor.
 EOF
     req xrandr sed || return 5
-    cz -d: -f 1 -i <(xrandr --listmonitors | sed 1d)
+    cz -f 3 -i <(xrandr --listmonitors | sed '1d; s/://;')
 }
 
 cz_xrandr_provider() {
@@ -5677,40 +5917,74 @@ EOF
     cz -d : -f 0 -i <(xrdb -query)
 }
 
+ytdl() {
+    local bin='youtube-dl'
+    if type yt-dlp &>/dev/null; then
+        bin="yt-dlp"
+    elif ! req youtube-dl yt-dlp; then
+         return 5
+    fi
+    eval "$bin" "$@"
+}
+
+cz_ytdl_format() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz ytdl foramt [URL]
+Select an extractable audio and video streams identified by youtube-dl/yt-dlp from the given URL.
+EOF
+    ytdl -h &>/dev/null || return 5
+    local url="$1"
+    if [ -z "$url" ]; then
+        return 2
+    fi
+    local audio=""
+    if ! audio=$(insulate ^_CZ_ cz -u ytdl format audio "$url"); then
+        return 3
+    fi
+    cz -e "ytdl -f ${audio}:{0}" format video "$url"
+}
+
+cz_ytdl_format_audio() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz ytdl foramt audio [URL]
+Select an extractable audio stream identified by youtube-dl/yt-dlp from the given URL.
+EOF
+    req perl sort || return 5
+    ytdl -h &>/dev/null || return 5
+    local url="$1"
+    if [ -z "$url" ]; then
+        return 2
+    fi
+    local filter='next unless /audio only/; next if /m3u8/; s/audio only\s*/ /g; s/\|//g; s/~(\s+)/\1~/; s/, /,/g; say;'
+    cz -f 0 -i <(ytdl -q -F "$url" 2>/dev/null | perl -lnE "$filter" | sort)
+}
+
+cz_ytdl_format_video() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz ytdl foramt video [URL]
+Select an extractable video stream identified by youtube-dl/yt-dlp from the given URL.
+EOF
+    req perl sort || return 5
+    ytdl -h &>/dev/null || return 5
+    local url="$1"
+    if [ -z "$url" ]; then
+        return 2
+    fi
+    local filter='next unless /video only/; s/video only\s*/ /; s/\|//g; s/~(\s+)/\1~/; s/ ,/,/g; say;'
+    cz -f 0 -i <(ytdl -q -F "$url" 2>/dev/null | perl -lnE "$filter" | sort)
+}
+
 cz_ytdl_search() {
     { hep "$_CZ_HELP" && return; } <<EOF
 cz ytdl
 Select a search prefix supported by youtube-dl/yt-dlp.
 EOF
-    # curl -sS https://raw.githubusercontent.com/yt-dlp/yt-dlp/refs/heads/master/supportedsites.md | grep prefix | grep -o -E '[\:a-z]+:' | sort -u
-    local prefixes=(
-"amazonminitv"
-"archive"
-"bilisearch"
-"google"
-"gvsearch"
-"minitvseason"
-"minitvseries"
-"netsearch"
-"nicosearch"
-"nicosearchdate"
-"nicovideo"
-"prxseries"
-"prxstories"
-"rkfnsearch"
-"rokfin"
-"scsearch"
-"search"
-"soundcloud"
-"trovoclip"
-"trovovod"
-"yahoo"
-"youtube"
-"ytarchive"
-"ytsearch"
-"ytsearchdate"
-"ytuser"
-"yvsearch")
+    # curl -sS https://raw.githubusercontent.com/yt-dlp/yt-dlp/refs/heads/master/supportedsites.md \
+        # | grep prefix | grep -o -E '[\:a-z]+:' | sort -u | sed 's/:$//' | tr '\n' ' ' | fold -s -w 80
+    local prefixes=(amazonminitv archive bilisearch google gvsearch minitv:season minitv:series
+                    netsearch nicosearch nicosearchdate nicovideo prxseries prxstories rkfnsearch
+                    rokfin scsearch search soundcloud trovoclip trovovod yahoo youtube ytarchive
+                    ytsearch ytsearchdate ytuser yvsearch)
     cz -e "cz ytdl video {0@C}10:${1@Q}" -i <(printf "%s\\n" "${prefixes[@]}")
 }
 
@@ -5719,12 +5993,7 @@ cz_ytdl_video() {
 cz ytdl [URL...]
 Select an extractable video URL found by youtube-dl/yt-dlp from the given URLs.
 EOF
-    local bin="youtube-dl"
-    if type yt-dlp &>/dev/null; then
-        bin="yt-dlp"
-    elif ! req youtube-dl yt-dlp; then
-         return 5
-    fi
+    ytdl -h &>/dev/null || return 5
     local fmt=""
     local fields=(
         '%(webpage_url)s'
@@ -5733,7 +6002,16 @@ EOF
         '%(duration)s'
         '%(timestamp>%Y-%m-%d)s')
     fmt=$(printf "%s\\t" "${fields[@]}")
-    cz -d $'\t' -e "${bin} {0}" -f 0 -i <("$bin" -s --print "$fmt" -- "$@" 2>/dev/null)
+    cz -d $'\t' -e "${bin} {0}" -f 0 -i <(ytdl -s --print "$fmt" -- "$@" 2>/dev/null)
+}
+
+cz_zellij_session() {
+    { hep "$_CZ_HELP" && return; } <<EOF
+cz zellij session
+Select a zellij session and attach to it.
+EOF
+    req zellij || return 5
+    cz -f 0 -e 'zellij attach {0}' -i <(zellij list-sessions -n)
 }
 
 cz_zip() {
@@ -5748,15 +6026,6 @@ EOF
     fi
     cz -d $'\t' -f 2 -e "unzip -p ${f@Q} {2}" \
        -i <(unzip -l "$f" | sed '1,3d; /^-/,$d; s/^[[:space:]]*//; s/[[:space:]]\{2,3\}/\t/g;')
-}
-
-cz_zellij_session() {
-    { hep "$_CZ_HELP" && return; } <<EOF
-cz zellij session
-Select a zellij session and attach to it.
-EOF
-    req zellij || return 5
-    cz -f 0 -e 'zellij attach {0}' -i <(zellij list-sessions -n)
 }
 
 ###

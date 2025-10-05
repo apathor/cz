@@ -43,17 +43,18 @@ The following line selection tools are supported:
 | ---------------------------------------------------------- | ---- |
 | [choose](https://github.com/chipsenkbeil/choose)           | GUI  |
 | [dmenu](https://tools.suckless.org/dmenu)                  | GUI  |
+| [dmenu-rs](https://github.com/Shizcow/dmenu-rs)            | GUI  |
 | [fzf](https://github.com/junegunn/fzf)                     | TTY  |
 | [fzy](https://github.com/jhawthorn/fzy)                    | TTY  |
 | [gum](https://github.com/charmbracelet/gum)                | TTY  |
 | [iselect](http://www.ossp.org/pkg/tool/iselect)            | TTY  |
+| [nfzf](https://github.com/talmobi/node-fzf)                | TTY  |
 | [pick](https://github.com/mptre/pick)                      | TTY  |
 | [pipedial](https://code.reversed.top/user/xaizek/pipedial) | TTY  |
 | [rofi](https://github.com/davatorium/rofi)                 | GUI  |
 | [selecta](https://github.com/garybernhardt/selecta)        | TTY  |
 | [sentaku](https://github.com/rcmdnk/sentaku)               | TTY  |
 | [skim](https://github.com/lotabout/skim)                   | TTY  |
-| [slmenu](https://github.com/joshaw/slmenu)                 | TTY  |
 | [vis-menu](https://github.com/martanne/vis)                | TTY  |
 | [zenity](https://wiki.gnome.org/Projects/Zenity)           | GUI  |
 
@@ -87,6 +88,7 @@ OPTIONS
   -k : tools    : List supported line selection tools.
   -l : plugins  : List detected plugins.
   -v : version  : Show version string.
+  -o : output   : Only print input lines instead of selecting a line.
 
  These options set the program mode. Select a line then... :
   -p : print    : Print the line. This is the default mode.
@@ -95,33 +97,33 @@ OPTIONS
   -s : simulate : Print a templated command.
   -t : template : Print a templated string.
   -u : unquote  : Print fields from the line literally.
-  -o : output   : Only print input lines instead of selecting a line.
 
- These options set a template:
-  -e TEMPLATE   : Set the command template. This option implies mode '-r'.
-  -f FIELDS     : Set the field template. This option implies mode '-q'.
-
- These options control input and line splitting:
+ These options control input of selection lines:
+  -i IN-FILE    : Set file from which to read selections instead of stdin.
+  -b            : Buffer stdin and pass it to command set with '-e'.
   -c            : Do not use cached input lines.
   -d DELIMITER  : Set the field splitting characters.
-  -g            : Buffer stdin and pass it to command set with '-e'.
+  -g PATTERN    : Filter input to lines matching the given grep pattern.
   -0            : Read null terminated lines from input.
-  -i IN-FILE    : Set file from which to read selections instead of stdin.
 
  These options control how lines are selected:
-  -n NUMBER     : Select a line the given number of times.
-  -w            : Pick a line at random.
+  -n NUMBER     : Select a line some number of times instead of just once.
+  -w            : Select a line at random instead of any tool.
   -x            : Use a graphical line selection tool.
   -y            : Use a terminal line selection tool.
   -z TOOL       : Use the given line selection tool.
+  -j            : Select each available line in sequence.
+
+ These options set output templates:
+  -e TEMPLATE   : Set the command template used in run, template, and simulate modes.
+  -f FIELDS     : Set the field template used in quote and unquote modes.
 
  These options control debugging features:
-  -m            : Print some debugging information.
+  -m            : Print debugging information.
+  -M            : Print timing information.
 
-TOOLS
- The following interactive line selection tools are supported:
-  choose, dmenu, fzf, fzy, gum, iselect, pick, pipedial, rofi, selecta,
-  sentaku, slmenu, vis-menu, and zenity.
+ These options set tool-specific options:
+  -P PROMPT     : Set the prompt in the line selection tool if possible.
 
 PLUGINS
  Plugins use cz for an application specific task. Each plugin defines input
@@ -144,11 +146,13 @@ TEMPLATES
   {X@Q} - Quote arguments for use in command input. This is the default.
 
 ENVIRONMENT
- CZ_GUI         : The preferred interface (1=graphical 0=terminal).
+ CZ_GUI         : Boolean whether to use a graphical selector (1=GUI 0=TTY).
  CZ_BINS        : A list of line selection tools in order of preference.
  CZ_DMENU_COLOR : Colon separated colors for dmenu (NF:NB:SF:SB).
  CZ_DMENU_FONT  : The font to use for dmenu.
  CZ_ROFI_THEME  : The theme to use for rofi.
+ CZ_PROMPT      : Prompt string to use for all prompts.
+ CZ_NO_PROMPT   : If non-empty do not set a prompt.
 ```
 
 ## Configuration
@@ -184,8 +188,8 @@ follows:
 | C-x Z | Select a cz plguin, run it in simulate mode and insert the command templated with the selection.          |
 | C-x r | Select a command from bash history and insert it.                                                         |
 | C-x u | Select a unicode character and insert it.                                                                 |
-| C-x g | Select an uncommitted file in current git repository and insert its path.                                  |
-| C-x G | Select a committed file in current git repository and insert its path.                                     |
+| C-x g | Select an uncommitted file in current git repository and insert its path.                                 |
+| C-x G | Select a committed file in current git repository and insert its path.                                    |
 | C-x d | Using the current word as a directory, replace it with a selected descendant directory.                   |
 | C-x D | Using the current word as a pattern, replace it with a selected matching descendant directory under $PWD. |
 | C-x f | Using the current word as a directory, replace it with a selected descendant file.                        |

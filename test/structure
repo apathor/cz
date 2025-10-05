@@ -14,13 +14,13 @@ assert_successful() {
     fi
 }
 
-cz_plugins_ordered() {
+plugins_ordered() {
     local path="./bin/cz"
     local filter='/^###/ { p=0 }; /^### PLUGINS/ { p=1 }; /^cz_/ { if (p == 1) { print $1 } }'
     diff -u <(awk "$filter" "$path") <(awk "$filter" "$path" | sort)
 }
 
-assert_successful "cz plugins are in alphabetical order" cz_plugins_ordered
+assert_successful "cz plugins are in alphabetical order" plugins_ordered
 
 if (( FAILS )); then
     printf "FAIL %d/%d" "$FAILS" "$TESTS"
